@@ -1,0 +1,3 @@
+/Users/alealfaro/pico/Badger2040-MQTT/build/pioasm/CMakeFiles/pioasm.dir
+/Users/alealfaro/pico/Badger2040-MQTT/build/pioasm/CMakeFiles/edit_cache.dir
+/Users/alealfaro/pico/Badger2040-MQTT/build/pioasm/CMakeFiles/rebuild_cache.dir

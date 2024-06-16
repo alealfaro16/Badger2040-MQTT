@@ -1,0 +1,6 @@
+CompileFlags:
+  Compiler: arm-gcc
+  CompilationDatabase: build/
+
+Index:
+  StandardLibrary: Yes

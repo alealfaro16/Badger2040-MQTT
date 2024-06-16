@@ -1,0 +1,28 @@
+{
+    "cmake.statusbar.advanced": {
+        "debug": {
+            "visibility": "hidden"
+        },
+        "launch": {
+            "visibility": "hidden"
+        },
+        "build": {
+            "visibility": "default"
+        },
+        "buildTarget": {
+            "visibility": "hidden"
+        }
+    },
+    "cmake.buildBeforeRun": true,
+    "cmake.environment": {
+        "WIFI_SSID": "Mississippi",
+        "WIFI_PASSWORD" : "GoldenJeroperoGateJaegar",
+        "MQTT_CLIENT" : "Badger",
+        "MQTT_HOST" : "192.168.4.32",
+        "MQTT_PORT" : 1883,
+        "MQTT_USER": "",
+        "MQTT_PASSWD":""
+    },
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "cortex-debug.openocdPath": "/opt/homebrew/bin/openocd"
+}

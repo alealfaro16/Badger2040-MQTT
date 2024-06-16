@@ -1,0 +1,11 @@
+Build:
+
+cmake -B Build
+cmake --build build
+
+Flash with openOCD:
+openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" -c "program build/src/XXXX.elf verify reset exit"
+
+Mosquitto:
+mosquitto_sub -d -h 192.168.4.32 -t TNG/pico/#
+mosquitto_pub -d -h 192.168.4.32 -t GRP/LED/TPC/req -m "{\"source\":\"pc\",\"on\":false}"
