@@ -2,6 +2,8 @@
 #define __LWIPOPTS_H__
 
 
+#include "pico/stdlib.h"
+
 #define TCPIP_THREAD_PRIO   2
 #define TCPIP_THREAD_STACKSIZE 2048 //1024
 #define DEFAULT_THREAD_STACKSIZE 1024
@@ -84,6 +86,17 @@
 
 #define DEFAULT_TCP_RECVMBOX_SIZE 128
 
+//SNTP NETWORK TIME
+#define SNTP_SUPPORT      1
+#define SNTP_SERVER_DNS   1
+void sntpSetTimeSec(uint32_t sec);
+void sntpSetTimeUSec(uint32_t sec, uint32_t us);
+#define SNTP_SET_SYSTEM_TIME(sec) sntpSetTimeSec(sec)
+//#define SNTP_SET_SYSTEM_TIME_US(sec, us) sntpSetTimeUSec(sec, us)
+//MEMP_NUM_SYS_TIMEOUTS Needs to be one larger than default for SNTP
+#define MEMP_NUM_SYS_TIMEOUT            (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 1)
 
+//Once an hour
+#define SNTP_UPDATE_DELAY 60000*60
 
 #endif /* __LWIPOPTS_H__ */

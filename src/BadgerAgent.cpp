@@ -10,17 +10,21 @@
 #include "BadgerAgent.h"
 #include "MQTTTopicHelper.h"
 #include "badger2040.hpp"
+#include "hardware/rtc.h"
 #include "logging_stack.h"
+#include "projdefs.h"
 #include "tiny-json.h"
 #include <string.h>
+#include <math.h>
 
 //Local enumerator of the actions to be queued
 
-#define DISPLAY_WIDTH 340 //Needs tuning
-#define DISPLAY_HEIGHT 128
+const int DISPLAY_WIDTH = 340; //Needs tuning
+const int DISPLAY_HEIGHT = 128;
 #define TEXT_PADDING  4
 constexpr float TEXT_SIZE = 0.5f;
 #define TEXT_WIDTH  (DISPLAY_WIDTH - TEXT_PADDING - TEXT_PADDING)
+#define NUM_BLINKS_MESSAGE 10
 /***
  * Constructor
  * @param ledGP - GPIO Pad of LED to control
@@ -72,6 +76,34 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) {
 			}
 			LogInfo(("Topic to publish badger state: %s", pTopicBadgerState));
 		}
+	}
+
+	//Create timer for blinking LED
+	auto blinkTimerCallback = [](TimerHandle_t timer) {
+		BadgerAgent* agent = static_cast<BadgerAgent*>(pvTimerGetTimerID(timer));
+		assert(agent);
+		if (agent->blinkCount > agent->numBlinks) {
+			xTimerStop(agent->blinkTimer, 0);
+		}
+		else {
+			agent->blinkTimerCallback(timer);
+		}
+	};
+	blinkTimer = xTimerCreate("Blink timer", pdMS_TO_TICKS(500), pdTRUE, static_cast<void*>(this), blinkTimerCallback);
+	blinkLED(5);
+
+	//Create timer clock update
+	auto clockUpdateCallback = [](TimerHandle_t timer) {
+		BadgerAgent* agent = static_cast<BadgerAgent*>(pvTimerGetTimerID(timer));
+		assert(agent);
+		agent->displayTime();
+	};
+	clockUpdateTimer = xTimerCreate("Clock timer", pdMS_TO_TICKS(1000*60), pdTRUE, static_cast<void*>(this), clockUpdateCallback);
+	if( xTimerStart( clockUpdateTimer, 0 ) != pdPASS )
+	{
+		/* The timer could not be set into the Active
+				 state. */
+		LogError(("Clock update timer couldn't be started"));
 	}
 
 }
@@ -220,27 +252,97 @@ void BadgerAgent::run(){
 void BadgerAgent::execLed(bool state){
 	xState = state;
 	int pwmVal = state ? 255 : 0;
-	badger.led(pwmVal);
+	badger.led(pwmVal);	
+}
 
-	char payload[16];
-	if (xState){
-		sprintf(payload, "{\"on\"=True}");
-	} else {
-		sprintf(payload, "{\"on\"=False}");
+
+void BadgerAgent::blinkTimerCallback(TimerHandle_t timer) {
+	xState = !xState;
+	blinkCount++;
+	execLed(xState);
+}
+
+void BadgerAgent::blinkLED(int blinks){
+	numBlinks = blinks;
+	blinkCount = 0;
+	if( xTimerStart( blinkTimer, 0 ) != pdPASS )
+	{
+		/* The timer could not be set into the Active
+				 state. */
+		LogError(("Blink timer couldn't be started"));
 	}
-	
-	if (pInterface != NULL){
-		pInterface->pubToTopic(
-			pTopicBadgerState,
-			payload,
-			strlen(payload),
-			1,
-			false
-			);
+
+}
+
+
+void BadgerAgent::displayTime(void) {
+
+	datetime_t d;
+	char dateStr[20];
+	char timeStr[20];
+	if (rtc_get_datetime(&d)) {
+    		printf("RTC: %d-%d-%d %d:%d:%d\n",
+    				d.year,
+					d.month,
+					d.day,
+					d.hour,
+					d.min,
+					d.sec);
+
+		snprintf(dateStr,20, "%d-%d-%d",d.day,d.month,d.year);
+		if (d.min < 10) {
+			snprintf(timeStr, 20,"%d : 0%d",d.hour, d.min);
+		}
+		else {
+			snprintf(timeStr, 20,"%d : %d",d.hour, d.min);
+		}
+		badger.pen(15);
+		badger.clear();
+		badger.pen(0);
+		drawClock(DISPLAY_WIDTH/4, DISPLAY_HEIGHT/2, DISPLAY_HEIGHT/2, d.hour, d.min);
+		badger.text(dateStr, DISPLAY_WIDTH/2 - 4*TEXT_PADDING, DISPLAY_HEIGHT/4, 0.75f);
+		badger.text(timeStr, DISPLAY_WIDTH/2 + 2*TEXT_PADDING, DISPLAY_HEIGHT/2, 0.75f);
+		badger.update();
+    }
+	else {
+		LogError(("RTC is not initialized"));
 	}
 }
 
+
+void BadgerAgent::drawClock(uint8_t x, uint8_t y, uint8_t handLen, uint8_t hour, uint8_t min){
+	float a;
+	int x2, y2;
+
+	float handShort = (float)handLen * 0.75;
+
+	//Dial
+	for (uint8_t i=0; i < 12; i++){
+		a = (float)i/12.0 * 6.28319;
+		a = a + (1.0/12.0)*(float)min/60.0 * 6.28319;
+		x2 = sin(a)*  handLen;
+		y2 = cos(a)* handLen;
+		badger.pixel(x+x2, y-y2);
+	}
+
+	//Hour hand
+	a = (float)hour/12.0 * 6.28319;
+	x2 = sin(a)*  handShort;
+	y2 = cos(a)* handShort;
+	badger.line(x, y, x+x2, y-y2);
+
+	//Minute hand
+	a = (float)min/60.0 * 6.28319;
+	x2 = sin(a)* (float) handLen;
+	y2 = cos(a)* (float) handLen;
+	badger.line(x, y, x+x2, y-y2);
+}
+
 void BadgerAgent::writeToDisplay(std::string msg){
+	
+	//Blink LED to show new message is being written
+	blinkLED(NUM_BLINKS_MESSAGE);
+
 	badger.pen(15);
 	badger.clear();
 	badger.pen(0);
@@ -254,7 +356,6 @@ void BadgerAgent::writeToDisplay(std::string msg){
 		std::string line  = msg.substr(r*charPerLine, charPerLine);
 		LogDebug(("line: %s", line.c_str()));
 		badger.text(line, TEXT_PADDING, r*17 + 10, TEXT_SIZE);
-
 	}
 	badger.update();
 
@@ -280,14 +381,14 @@ void BadgerAgent::parseJSON(char *str){
 		LogError(("Error json create."));
 		return ;
 	}
-	json_t const* on = json_getProperty( json, "on" );
-	if ( !on || JSON_BOOLEAN != json_getType( on ) ) {
-		LogInfo(("The on property is not found."));
-	}
-	else {
-		bool b = (int)json_getBoolean( on );
-		setOn(b);
-	}
+	//json_t const* on = json_getProperty( json, "on" );
+	//if ( !on || JSON_BOOLEAN != json_getType( on ) ) {
+	//	LogInfo(("The on property is not found."));
+	//}
+	//else {
+	//	//bool b = (int)json_getBoolean( on );
+	//	//setOn(b);
+	//}
 	json_t const* message = json_getProperty( json, "message" );
 	if ( !message || JSON_TEXT != json_getType( message ) ) {
 		LogInfo(("The message property is not found."));

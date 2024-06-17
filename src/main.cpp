@@ -6,6 +6,7 @@
  *
  */
 
+#include "hardware/rtc.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
@@ -22,8 +23,6 @@
 #include "WifiHelper.h"
 #include "MQTTAgent.h"
 #include "MQTTAgentObserver.h"
-#include "LEDAgent.h"
-#include "MQTTRouterLED.h"
 #include "BadgerAgent.h"
 #include "MQTTRouterBadger.h"
 
@@ -145,7 +144,14 @@ void main_task(void *params){
 	WifiHelper::getIPAddressStr(ipStr);
 	printf("IP ADDRESS: %s\n", ipStr);
 
-
+	//Setup SNTP to get time
+	WifiHelper::sntpAddServer("0.uk.pool.ntp.org");
+	WifiHelper::sntpAddServer("1.uk.pool.ntp.org");
+	WifiHelper::sntpAddServer("2.uk.pool.ntp.org");
+	WifiHelper::sntpAddServer("3.uk.pool.ntp.org");
+	WifiHelper::sntpSetTimezone(-7); //California UTC offset
+	WifiHelper::sntpStartSync();
+	
 	// Setup for MQTT Connection
 	char mqttTarget[] = MQTT_HOST;
 	int mqttPort = MQTT_PORT;
@@ -166,17 +172,12 @@ void main_task(void *params){
 	mqttAgent.mqttConnect(mqttTarget, mqttPort, true);
 	mqttAgent.start(TASK_PRIORITY);
 
-	//Create LED Agent and router
-	//LEDAgent ledAgent(LED_PAD, SWITCH_PAD, &mqttAgent);
-	//ledAgent.start("LEDAgent", TASK_PRIORITY);
-	//MQTTRouterLED router(&ledAgent);
-	//mqttAgent.setRouter(&router);
-	
 	//Create Badger Agent and router
 	BadgerAgent badAgent(&mqttAgent);
 	badAgent.start("BadAgent", TASK_PRIORITY);
 	MQTTRouterBadger badRouter(&badAgent);
 	mqttAgent.setRouter(&badRouter);
+
 
     while(true) {
 

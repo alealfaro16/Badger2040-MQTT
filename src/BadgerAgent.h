@@ -23,6 +23,7 @@
 #include "MQTTInterface.h"
 #include "badger2040.hpp"
 #include <string.h>
+#include "timers.h"
 
 using namespace pimoroni;
 
@@ -61,6 +62,7 @@ public:
 	 * Toggle the state of the LED. so On becomes Off, etc.
 	 */
 	void toggle();
+	void blinkTimerCallback(TimerHandle_t timer);
 
 
 	/***
@@ -104,8 +106,14 @@ private:
 	 * @param state
 	 */
 	void execLed(bool state);
+	void blinkLED(int blinks);
 
 	void writeToDisplay(std::string msg);
+
+	//Clock and time
+	TimerHandle_t clockUpdateTimer;
+	void displayTime(void);
+	void drawClock(uint8_t x, uint8_t y, uint8_t handLen, uint8_t hour, uint8_t min);
 
 	/***
 	 * Parse a JSON string and add request to queue
@@ -131,13 +139,19 @@ private:
 
 	// Switch manage to manage the SPST switch
 	SwitchMgr *pSwitchMgr = NULL;
-
+	
+	//Variables for wrapping text around display
 	int textSpacing;
 	int lenPerChar;	
 	int charPerLine;
 
 	//Queue of commands
 	QueueHandle_t xCmdQ;
+
+	//Timer for blinking led
+	TimerHandle_t blinkTimer;
+	int blinkCount = 0;
+	int numBlinks = 0;
 
 	// Message buffer handle
 	MessageBufferHandle_t xBuffer = NULL;

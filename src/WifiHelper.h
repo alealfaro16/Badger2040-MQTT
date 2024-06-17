@@ -90,8 +90,36 @@ public:
 	 */
 	static bool isJoined();
 
-private:
 
+	/***
+	 * Set timezone offset
+	 * @param offsetHours - hours of offset -23 to + 23
+	 * @param offsetMinutes - for timezones that use odd mintes you can add or sub additional minutes
+	 */
+	static void sntpSetTimezone(int8_t offsetHours, int8_t offsetMinutes = 0);
+
+	/***
+	 * Add SNTP server - can call to add multiple servers
+	 * @param server - string name of server. Should remain in scope
+	 */
+	static void sntpAddServer(const char *server);
+
+	/***
+	 * Start syncing Pico time with SNTP
+	 */
+	static void sntpStartSync();
+
+
+	/***
+	 * Call back function used to set the RTC with the SNTP response
+	 * @param sec
+	 */
+	static void setTimeSec(uint32_t sec);
+
+private:
+	
+	static uint8_t sntpServerCount;
+	static int32_t sntpTimezoneMinutesOffset;
 
 };
 

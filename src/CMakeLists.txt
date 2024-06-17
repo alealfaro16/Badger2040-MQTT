@@ -32,6 +32,7 @@ target_link_libraries(${NAME}
      coreMQTTAgent
      tiny_json
      badger2040
+     hardware_rtc
 	)
 	
 target_include_directories(${NAME} PRIVATE

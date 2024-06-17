@@ -9,10 +9,13 @@
 
 #include "pico/cyw43_arch.h"
 #include "pico/util/datetime.h"
+#include <time.h>
+#include "hardware/rtc.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "lwip/apps/sntp.h"
 
 WifiHelper::WifiHelper() {
 	// NOP
@@ -158,5 +161,69 @@ bool WifiHelper::isJoined(){
 	int res = cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA);
 	return (res >= 0);
 }
+
+
+/***
+ * Set timezone offset
+ * @param offsetHours - hours of offset -23 to + 23
+ * @param offsetMinutes - for timezones that use odd mintes you can add or sub additional minutes
+ */
+void WifiHelper::sntpSetTimezone(int8_t offsetHours, int8_t offsetMinutes){
+	WifiHelper::sntpTimezoneMinutesOffset = (offsetHours * 60) + offsetMinutes;
+}
+
+/***
+ * Add SNTP server - can call to add multiple servers
+ * @param server - string name of server. Should remain in scope
+ */
+void WifiHelper::sntpAddServer(const char *server){
+	sntp_setservername(WifiHelper::sntpServerCount++, server);
+}
+
+/***
+ * Start syncing Pico time with SNTP
+ */
+void WifiHelper::sntpStartSync(){
+	rtc_init();
+	sntp_setoperatingmode(SNTP_OPMODE_POLL);
+	sntp_init();
+}
+
+/***
+ * Call back function used to set the RTC with the SNTP response
+ * @param sec
+ */
+void WifiHelper::setTimeSec(uint32_t sec){
+	datetime_t date;
+	struct tm * timeinfo;
+
+	time_t t = sec + (60 * WifiHelper::sntpTimezoneMinutesOffset);
+
+	timeinfo = gmtime(&t);
+
+	memset(&date, 0, sizeof(date));
+	date.sec = timeinfo->tm_sec;
+	date.min = timeinfo->tm_min;
+	date.hour = timeinfo->tm_hour;
+	date.day = timeinfo->tm_mday;
+	date.month = timeinfo->tm_mon + 1;
+	date.year = timeinfo->tm_year + 1900;
+
+	rtc_set_datetime (&date);
+}
+
+
+//Function mentioned in the lwip port include lwipopts.h
+void sntpSetTimeSec(uint32_t sec){
+	WifiHelper::setTimeSec(sec);
+}
+
+void sntpSetTimeUSec(uint32_t sec, uint32_t us){
+	WifiHelper::setTimeSec(sec);
+}
+
+uint8_t WifiHelper::sntpServerCount = 0;
+int32_t WifiHelper::sntpTimezoneMinutesOffset = 0;
+
 
 
