@@ -31,9 +31,9 @@ using namespace pimoroni;
 #define MQTT_TOPIC_BADGER_STATE "Badger/state"
 #define BADGER_BUFFER_LEN 	512
 #define BADGER_JSON_LEN 	512
-#define BADGER_JSON_POOL 	5
+#define BADGER_JSON_POOL 	10
 
-enum BadgerAction {BadLEDOff, BadLEDOn, BadLEDToggle, WriteToScreen};
+enum BadgerAction {WriteToScreen, DisplayTime, WriteReminder};
 
 class BadgerAgent : public Agent, public SwitchObserver {
 public:
@@ -50,18 +50,12 @@ public:
 	 */
 	virtual ~BadgerAgent();
 
-	/***
-	 * Set the states of the LED to - on
-	 * @param on - boolean if the LED should be on or off
-	 */
-	void setOn(bool on);
 
-	void sendAction(BadgerAction action);
+	void sendAction(BadgerAction action, bool putFront=false);
 
 	/***
 	 * Toggle the state of the LED. so On becomes Off, etc.
 	 */
-	void toggle();
 	void blinkTimerCallback(TimerHandle_t timer);
 
 
@@ -108,10 +102,10 @@ private:
 	void execLed(bool state);
 	void blinkLED(int blinks);
 
-	void writeToDisplay(std::string msg);
 
 	//Clock and time
 	TimerHandle_t clockUpdateTimer;
+	int skipTimeDisplayCount = 0; //Used to skip the time display for x Amount of seconds
 	void displayTime(void);
 	void drawClock(uint8_t x, uint8_t y, uint8_t handLen, uint8_t hour, uint8_t min);
 
@@ -131,7 +125,16 @@ private:
 	bool xState = false;
 
 	//String to write to screen
+	void writeToDisplay(std::string msg);
 	std::string msgToDisplay;
+
+	struct reminder_t {
+		std::string title;
+		std::string date;
+		std::string time;
+	}reminder;
+	std::vector<reminder_t> reminderVec;
+	void writeReminderToDisplay(reminder_t &reminder);
 
 	//LED and switch pads
 	Badger2040 badger;

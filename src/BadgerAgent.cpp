@@ -23,6 +23,7 @@ const int DISPLAY_WIDTH = 340; //Needs tuning
 const int DISPLAY_HEIGHT = 128;
 #define TEXT_PADDING  4
 constexpr float TEXT_SIZE = 0.5f;
+constexpr float REMINDER_TEXT_SIZE = 0.7f;
 #define TEXT_WIDTH  (DISPLAY_WIDTH - TEXT_PADDING - TEXT_PADDING)
 #define NUM_BLINKS_MESSAGE 10
 /***
@@ -84,6 +85,7 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) {
 		assert(agent);
 		if (agent->blinkCount > agent->numBlinks) {
 			xTimerStop(agent->blinkTimer, 0);
+			agent->execLed(false);
 		}
 		else {
 			agent->blinkTimerCallback(timer);
@@ -96,7 +98,7 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) {
 	auto clockUpdateCallback = [](TimerHandle_t timer) {
 		BadgerAgent* agent = static_cast<BadgerAgent*>(pvTimerGetTimerID(timer));
 		assert(agent);
-		agent->displayTime();
+		agent->sendAction(DisplayTime);
 	};
 	clockUpdateTimer = xTimerCreate("Clock timer", pdMS_TO_TICKS(1000*60), pdTRUE, static_cast<void*>(this), clockUpdateCallback);
 	if( xTimerStart( clockUpdateTimer, 0 ) != pdPASS )
@@ -145,38 +147,14 @@ void BadgerAgent::handleLongPress(uint8_t gp){
 }
 
 
-/***
- * Set the states of the LED to - on
- * @param on - boolean if the LED should be on or off
- */
-void BadgerAgent::setOn(bool on){
-	BadgerAction action = BadLEDOff;
-
-	if (on){
-		action = BadLEDOn;
+void BadgerAgent::sendAction(BadgerAction action, bool putFront){
+	BaseType_t res;
+	if (putFront) {
+		res = xQueueSendToFront(xCmdQ, (void *)&action, 0);
 	}
-
-	BaseType_t res = xQueueSendToBack(xCmdQ, (void *)&action, 0);
-	if (res != pdTRUE){
-		LogWarn(("Queue is full\n"));
+	else {
+		res = xQueueSendToBack(xCmdQ, (void *)&action, 0);
 	}
-}
-
-void BadgerAgent::sendAction(BadgerAction action){
-	
-	BaseType_t res = xQueueSendToBack(xCmdQ, (void *)&action, 0);
-	if (res != pdTRUE){
-		LogWarn(("Queue is full\n"));
-	}
-}
-
-
-/***
- * Toggle the state of the LED. so On becomes Off, etc.
- */
-void BadgerAgent::toggle(){
-	BadgerAction action = BadLEDToggle;
-	BaseType_t res = xQueueSendToBack(xCmdQ, (void *)&action, 0);
 	if (res != pdTRUE){
 		LogWarn(("Queue is full\n"));
 	}
@@ -186,11 +164,12 @@ void BadgerAgent::toggle(){
  * Toggle LED state from within an intrupt
  */
 void BadgerAgent::intToggle(){
-	BadgerAction action = BadLEDToggle;
-	BaseType_t res = xQueueSendToFrontFromISR(xCmdQ, (void *)&action, NULL);
-	if (res != pdTRUE){
-		LogWarn(("Queue is full\n"));
-	}
+	LogInfo(("Got button press"));
+	//BadgerAction action = BadLEDToggle;
+	//BaseType_t res = xQueueSendToFrontFromISR(xCmdQ, (void *)&action, NULL);
+	//if (res != pdTRUE){
+	//	LogWarn(("Queue is full\n"));
+	//}
 }
 
 
@@ -199,7 +178,7 @@ void BadgerAgent::intToggle(){
   */
 void BadgerAgent::run(){
 	BaseType_t res;
-	BadgerAction action = BadLEDOff;
+	BadgerAction action = WriteToScreen;
 	char jsonStr[BADGER_JSON_LEN];
 	size_t readLen;
 
@@ -222,20 +201,18 @@ void BadgerAgent::run(){
 		res = xQueueReceive(xCmdQ, (void *)&action, 0);
 		if (res == pdTRUE){
 			switch(action){
-				case BadLEDOff:{
-					execLed(false);
-					break;
-				}
-				case BadLEDOn:{
-					execLed(true);
-					break;
-				}
-				case BadLEDToggle:{
-					execLed(!xState);
+				case WriteReminder:{
+					writeReminderToDisplay(reminder);
+					xQueueReset(xCmdQ);//Delete other commands in queue to prevent overwrite of message
 					break;
 				}
 				case WriteToScreen:{
 					writeToDisplay(msgToDisplay);
+					xQueueReset(xCmdQ);//Delete other commands in queue to prevent overwrite of message
+					break;
+				}
+				case DisplayTime:{
+					displayTime();
 					break;
 				}
 			}
@@ -276,6 +253,12 @@ void BadgerAgent::blinkLED(int blinks){
 
 
 void BadgerAgent::displayTime(void) {
+	
+	//Counter to skip the time display for X seconds
+	if (skipTimeDisplayCount > 0) {
+		skipTimeDisplayCount--;
+		return;
+	}
 
 	datetime_t d;
 	char dateStr[20];
@@ -343,6 +326,8 @@ void BadgerAgent::writeToDisplay(std::string msg){
 	//Blink LED to show new message is being written
 	blinkLED(NUM_BLINKS_MESSAGE);
 
+	skipTimeDisplayCount = 2; //Skip clock display for 2 minutes
+	
 	badger.pen(15);
 	badger.clear();
 	badger.pen(0);
@@ -359,6 +344,34 @@ void BadgerAgent::writeToDisplay(std::string msg){
 	}
 	badger.update();
 
+}
+
+void BadgerAgent::writeReminderToDisplay(reminder_t &reminder){
+	
+	//Blink LED to show new message is being written
+	blinkLED(NUM_BLINKS_MESSAGE);
+
+	skipTimeDisplayCount = 2; //Skip clock display for 2 minutes
+	
+	badger.pen(15);
+	badger.clear();
+	badger.pen(0);
+
+	//LogInfo(("msg received: %s",msg.c_str()));
+	int len = badger.measure_text(reminder.title, TEXT_SIZE);
+	int rows = (len / TEXT_WIDTH) + 1;
+	LogDebug(("Reminder title length is %d and it's display length is: %d", tile.length(),len));
+	LogDebug(("rows to print: %d",rows));
+	for (int r = 0; r < rows; r++) {
+		std::string line  = reminder.title.substr(r*charPerLine, charPerLine);
+		LogDebug(("line: %s", line.c_str()));
+		badger.text(line, TEXT_PADDING, r*17 + 10, 0.7f);
+	}
+	
+	badger.text(reminder.time, TEXT_PADDING, 3*DISPLAY_HEIGHT/4, 0.7f);
+	badger.text(reminder.date, TEXT_PADDING, 7*DISPLAY_HEIGHT/8, 0.7f);
+
+	badger.update();
 }
 
 
@@ -381,21 +394,45 @@ void BadgerAgent::parseJSON(char *str){
 		LogError(("Error json create."));
 		return ;
 	}
-	//json_t const* on = json_getProperty( json, "on" );
-	//if ( !on || JSON_BOOLEAN != json_getType( on ) ) {
-	//	LogInfo(("The on property is not found."));
-	//}
-	//else {
-	//	//bool b = (int)json_getBoolean( on );
-	//	//setOn(b);
-	//}
+	json_t const* reminderJson = json_getProperty( json, "reminder" );
+	if ( !reminderJson|| JSON_OBJ != json_getType( reminderJson) ) {
+		LogInfo(("The reminder property is not found."));
+	}
+	else {
+		bool validReminder = true;
+		json_t const* title = json_getProperty( reminderJson, "title" );
+		if ( !title || JSON_TEXT != json_getType( title ) ) {
+			LogError(("The title property is not found in reminder."));
+			validReminder = false;
+		}
+
+		json_t const* dueDate = json_getProperty( reminderJson, "date" );
+		if ( !dueDate || JSON_TEXT != json_getType( dueDate ) ) {
+			LogError(("The dueDate property is not found in reminder."));
+			validReminder = false;
+		}
+
+		json_t const* dueTime = json_getProperty( reminderJson, "time" );
+		if ( !dueTime || JSON_TEXT != json_getType( dueDate ) ) {
+			LogError(("The dueDate property is not found in reminder."));
+			validReminder = false;
+		}
+
+
+		if (validReminder) {
+			reminder.title = json_getValue(title);
+			reminder.date = json_getValue(dueDate);
+			reminder.time = json_getValue(dueTime);
+			sendAction(WriteReminder, true);//Put this action on the front of the queue
+		}
+	}
 	json_t const* message = json_getProperty( json, "message" );
 	if ( !message || JSON_TEXT != json_getType( message ) ) {
 		LogInfo(("The message property is not found."));
 	}
 	else {
 		msgToDisplay = json_getValue(message);
-		sendAction(WriteToScreen);
+		sendAction(WriteToScreen, true);//Put this action on the front of the queue
 	}
 
 }
