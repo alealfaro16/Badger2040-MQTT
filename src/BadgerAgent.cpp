@@ -9,13 +9,17 @@
 
 #include "BadgerAgent.h"
 #include "MQTTTopicHelper.h"
+#include "SwitchMgr.h"
 #include "badger2040.hpp"
 #include "hardware/rtc.h"
 #include "logging_stack.h"
+#include "pico/types.h"
 #include "projdefs.h"
 #include "tiny-json.h"
+#include <cstdint>
 #include <string.h>
 #include <math.h>
+#include <stdexcept>
 
 //Local enumerator of the actions to be queued
 
@@ -35,12 +39,11 @@ constexpr float REMINDER_TEXT_SIZE = 0.7f;
 BadgerAgent::BadgerAgent(MQTTInterface *interface) {
 
 	badger.init();
-	xSpstGP = Badger2040::A;
 	pInterface = interface;
 
 	//Initialize variables to write text in display
 	textSpacing = 34*TEXT_SIZE;
-	lenPerChar = badger.measure_text("a", TEXT_SIZE);
+	int lenPerChar = badger.measure_text("a", TEXT_SIZE);
 	charPerLine = TEXT_WIDTH/lenPerChar;
 	LogDebug(("len per char: %d and charPerLine %d", lenPerChar, charPerLine));
 	badger.pen(15);
@@ -48,11 +51,13 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) {
 	badger.pen(0);
 	badger.font("serif");
 	badger.thickness(2);
-	badger.text("Initiating Badger....", TEXT_PADDING, textSpacing/2 + TEXT_PADDING, TEXT_SIZE);
+	badger.text("Initiating Badger....", TEXT_PADDING, textSpacing + TEXT_PADDING, TEXT_SIZE);
 	badger.update();
 	//Construct switch observer and listen
-	pSwitchMgr = new SwitchMgr(xSpstGP, false);
-	pSwitchMgr->setObserver(this);
+	for (int i = 0; i < BADGER_BUTTON_USED; i++) {
+		pSwitchMgrs[i] = new SwitchMgr(badgerButtonLUT[i], false);
+		pSwitchMgrs[i]->setObserver(this);
+	}
 
 	// Queue for actions commands for the class
 	xCmdQ = xQueueCreate( BADGER_QUEUE_LEN, sizeof(BadgerAction));
@@ -114,8 +119,11 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) {
  * Destructor
  */
 BadgerAgent::~BadgerAgent() {
-	if (pSwitchMgr != NULL){
-		delete pSwitchMgr;
+	
+	for (auto mgr : pSwitchMgrs) {
+		if (mgr != NULL){
+			delete mgr;
+		}
 	}
 	if (xCmdQ != NULL){
 		vQueueDelete(xCmdQ);
@@ -135,7 +143,7 @@ BadgerAgent::~BadgerAgent() {
  * @param gp - GPIO number of the switch
  */
 void BadgerAgent::handleShortPress(uint8_t gp){
-	intToggle();
+	handleButtonInput(gp);
 }
 
 /***
@@ -143,9 +151,23 @@ void BadgerAgent::handleShortPress(uint8_t gp){
  * @param gp - GPIO number of the switch
  */
 void BadgerAgent::handleLongPress(uint8_t gp){
-	intToggle();
+	handleButtonInput(gp);
 }
 
+void BadgerAgent::handleScrollAction(bool isUp) {
+	
+	//Nothing to do if there's no reminders
+	if (reminderVec.empty()) return;
+	int prev = reminderIdx;
+	isUp ? reminderIdx-- : reminderIdx++;
+	reminderIdx = std::clamp(reminderIdx, 0, static_cast<int>(reminderVec.size() - 1));
+	
+	//No change to index so don't need to refresh screen
+	if (prev == reminderIdx) return;
+	
+	LogInfo(("New reminder idx: %d", reminderIdx));
+	sendAction(WriteReminder, true);
+}
 
 void BadgerAgent::sendAction(BadgerAction action, bool putFront){
 	BaseType_t res;
@@ -163,13 +185,20 @@ void BadgerAgent::sendAction(BadgerAction action, bool putFront){
 /***
  * Toggle LED state from within an intrupt
  */
-void BadgerAgent::intToggle(){
-	LogInfo(("Got button press"));
-	//BadgerAction action = BadLEDToggle;
-	//BaseType_t res = xQueueSendToFrontFromISR(xCmdQ, (void *)&action, NULL);
-	//if (res != pdTRUE){
-	//	LogWarn(("Queue is full\n"));
-	//}
+void BadgerAgent::handleButtonInput(uint8_t gp){
+	auto idx = badgerButtonToEnum.find(gp);	
+	if (idx ==  badgerButtonToEnum.end()){
+		LogError(("Unavailable button got pressed : %d", gp));
+		return;
+	}
+	
+	enum BadgerButtons buttonType = static_cast<enum BadgerButtons>(idx->second);
+	LogInfo(("Got %s button press", badgerButtonStringLUT[buttonType].c_str()));
+	BadgerAction action = badgerButtonActLUT[buttonType];
+	BaseType_t res = xQueueSendToFrontFromISR(xCmdQ, (void *)&action, NULL);
+	if (res != pdTRUE){
+		LogWarn(("Queue is full\n"));
+	}
 }
 
 
@@ -202,7 +231,7 @@ void BadgerAgent::run(){
 		if (res == pdTRUE){
 			switch(action){
 				case WriteReminder:{
-					writeReminderToDisplay(reminder);
+					writeReminderToDisplay();
 					xQueueReset(xCmdQ);//Delete other commands in queue to prevent overwrite of message
 					break;
 				}
@@ -213,6 +242,21 @@ void BadgerAgent::run(){
 				}
 				case DisplayTime:{
 					displayTime();
+					break;
+				}
+				case DisplayReminders: {
+					break;
+				}
+				case DisplayEvents: {
+					displayEvents();
+					break;
+				}
+				case ScrollDown: {
+					handleScrollAction(false);
+					break;
+				}
+				case ScrollUp: {
+					handleScrollAction(true);
 					break;
 				}
 			}
@@ -264,13 +308,13 @@ void BadgerAgent::displayTime(void) {
 	char dateStr[20];
 	char timeStr[20];
 	if (rtc_get_datetime(&d)) {
-    		printf("RTC: %d-%d-%d %d:%d:%d\n",
+    		LogDebug(("RTC: %d-%d-%d %d:%d:%d\n",
     				d.year,
 					d.month,
 					d.day,
 					d.hour,
 					d.min,
-					d.sec);
+					d.sec));
 
 		snprintf(dateStr,20, "%d-%d-%d",d.day,d.month,d.year);
 		if (d.min < 10) {
@@ -290,6 +334,28 @@ void BadgerAgent::displayTime(void) {
 	else {
 		LogError(("RTC is not initialized"));
 	}
+}
+
+void BadgerAgent::displayEvents(void) {
+	badger.pen(15);
+	badger.clear();
+	badger.pen(0);
+	datetime_t d;
+	rtc_get_datetime(&d);
+	std::string titleText = "Events (" + std::to_string(d.month) + "/" + std::to_string(d.day) + ")";
+	badger.text(titleText, 10, 10, REMINDER_TEXT_SIZE);
+	int titleTextSpacing = 34*REMINDER_TEXT_SIZE;
+	int yTopMargin = 10 + titleTextSpacing;
+	int row = 0;
+	for (auto& reminder : reminderVec) {
+		if(reminder.type == reminder_t::EVENT) {
+			badger.text(reminder.time, DISPLAY_WIDTH/3, (row++)*textSpacing + yTopMargin ,TEXT_SIZE);
+			badger.text(reminder.title, TEXT_PADDING, (row++)*textSpacing + yTopMargin, TEXT_SIZE);
+		}
+
+		if (row*textSpacing > DISPLAY_HEIGHT) break;
+	}
+	badger.update();
 }
 
 
@@ -340,38 +406,51 @@ void BadgerAgent::writeToDisplay(std::string msg){
 	for (int r = 0; r < rows; r++) {
 		std::string line  = msg.substr(r*charPerLine, charPerLine);
 		LogDebug(("line: %s", line.c_str()));
-		badger.text(line, TEXT_PADDING, r*17 + 10, TEXT_SIZE);
+		badger.text(line, TEXT_PADDING, r*textSpacing + 10, TEXT_SIZE);
 	}
 	badger.update();
 
 }
 
-void BadgerAgent::writeReminderToDisplay(reminder_t &reminder){
+void BadgerAgent::writeReminderToDisplay(){
 	
-	//Blink LED to show new message is being written
-	blinkLED(NUM_BLINKS_MESSAGE);
+	try {
+		reminder_t& reminder = reminderVec.at(reminderIdx);
+		//Blink LED to show new message is being written
+		blinkLED(NUM_BLINKS_MESSAGE);
 
-	skipTimeDisplayCount = 2; //Skip clock display for 2 minutes
-	
-	badger.pen(15);
-	badger.clear();
-	badger.pen(0);
+		skipTimeDisplayCount = 2; //Skip clock display for 2 minutes
+		//
+		int lenChar = badger.measure_text("A", REMINDER_TEXT_SIZE);
+		int cPerLine = TEXT_WIDTH/lenChar;
+		int textSpacing = 34*REMINDER_TEXT_SIZE;
 
-	//LogInfo(("msg received: %s",msg.c_str()));
-	int len = badger.measure_text(reminder.title, TEXT_SIZE);
-	int rows = (len / TEXT_WIDTH) + 1;
-	LogDebug(("Reminder title length is %d and it's display length is: %d", tile.length(),len));
-	LogDebug(("rows to print: %d",rows));
-	for (int r = 0; r < rows; r++) {
-		std::string line  = reminder.title.substr(r*charPerLine, charPerLine);
-		LogDebug(("line: %s", line.c_str()));
-		badger.text(line, TEXT_PADDING, r*17 + 10, 0.7f);
+		badger.pen(15);
+		badger.clear();
+		badger.pen(0);
+
+		int len = badger.measure_text(reminder.title, REMINDER_TEXT_SIZE);
+		int rows = (len / TEXT_WIDTH) + 1;
+		LogDebug(("Reminder title length is %d and it's display length is: %d", tile.length(),len));
+		LogDebug(("rows to print: %d",rows));
+		badger.text(reminder.stringLUT[reminder.type], 10, 10, REMINDER_TEXT_SIZE);
+		for (int r = 0; r < rows; r++) {
+			std::string line  = reminder.title.substr(r*cPerLine, cPerLine);
+			LogDebug(("line: %s", line.c_str()));
+			badger.text(line, TEXT_PADDING, r*textSpacing + 10 + textSpacing, REMINDER_TEXT_SIZE);
+		}
+
+		badger.text(reminder.time, TEXT_PADDING, 3*DISPLAY_HEIGHT/4, REMINDER_TEXT_SIZE);
+		badger.text(reminder.date, TEXT_PADDING, 7*DISPLAY_HEIGHT/8, REMINDER_TEXT_SIZE);
+
+		badger.update();
+
 	}
-	
-	badger.text(reminder.time, TEXT_PADDING, 3*DISPLAY_HEIGHT/4, 0.7f);
-	badger.text(reminder.date, TEXT_PADDING, 7*DISPLAY_HEIGHT/8, 0.7f);
+	catch (const std::out_of_range& oor) {
+		LogError(("Reminder idx is out of bounds of reminder vec!"));
+	}
 
-	badger.update();
+
 }
 
 
@@ -383,6 +462,53 @@ void BadgerAgent::writeReminderToDisplay(reminder_t &reminder){
 	 return 1024;
  }
 
+std::optional<BadgerAgent::reminder_t> BadgerAgent::processJsonToReminder(json_t const* reminderJson, reminder_t::Type type) {
+
+	char const* titleJ = json_getPropertyValue( reminderJson, "title" );
+	char const* dateJ = json_getPropertyValue( reminderJson, "date" );
+	char const* timeJ = json_getPropertyValue( reminderJson, "time" );
+	if ( titleJ  && dateJ && timeJ) {
+		reminder_t newReminder = { .title = titleJ,
+			.date = dateJ,
+			.time = timeJ,
+			.type = type};
+		LogDebug(("Reminder: %s , due date: %s %s",newReminder.title.c_str(), newReminder.time.c_str(), newReminder.date.c_str()));
+		return newReminder;
+	}
+	return std::nullopt;
+}
+
+
+void BadgerAgent::parseJSONEventsReminders(json_t const* reminderList, json_t const* eventList) {
+
+	reminderVec.clear();
+	if (reminderList != NULL) {
+		for( auto remind = json_getChild( reminderList ); remind != 0; remind = json_getSibling( remind ) ) {
+			if ( JSON_OBJ == json_getType( remind ) ) {
+				auto newReminder = processJsonToReminder(remind, reminder_t::REMINDER);
+				if (newReminder.has_value()) reminderVec.push_back(newReminder.value());
+			}
+			else {
+				LogError(("Couldn't parse reminder!"));
+			}
+		}
+	}
+	
+	if (eventList != NULL) {
+		for( auto event = json_getChild( eventList ); event != 0; event = json_getSibling( event ) ) {
+			if ( JSON_OBJ == json_getType( event ) ) {
+				auto newEvent = processJsonToReminder(event, reminder_t::EVENT);
+				if (newEvent.has_value()) reminderVec.push_back(newEvent.value());
+			}
+			else {
+				LogError(("Couldn't parse reminder!"));
+			}
+		}
+	}
+	
+	//Start at the top of reminder vec
+	reminderIdx = 0;
+}
 
 /***
 * Parse a JSON string and add request to queue
@@ -394,38 +520,32 @@ void BadgerAgent::parseJSON(char *str){
 		LogError(("Error json create."));
 		return ;
 	}
-	json_t const* reminderJson = json_getProperty( json, "reminder" );
-	if ( !reminderJson|| JSON_OBJ != json_getType( reminderJson) ) {
-		LogInfo(("The reminder property is not found."));
+	
+	
+	bool remindersReceived = false, eventsReceived = false;
+	json_t const* remindersJson = json_getProperty( json, "reminders" );
+	if ( !remindersJson|| JSON_ARRAY != json_getType( remindersJson) ) {
+		LogInfo(("The reminders property is not found."));
+
 	}
 	else {
-		bool validReminder = true;
-		json_t const* title = json_getProperty( reminderJson, "title" );
-		if ( !title || JSON_TEXT != json_getType( title ) ) {
-			LogError(("The title property is not found in reminder."));
-			validReminder = false;
-		}
-
-		json_t const* dueDate = json_getProperty( reminderJson, "date" );
-		if ( !dueDate || JSON_TEXT != json_getType( dueDate ) ) {
-			LogError(("The dueDate property is not found in reminder."));
-			validReminder = false;
-		}
-
-		json_t const* dueTime = json_getProperty( reminderJson, "time" );
-		if ( !dueTime || JSON_TEXT != json_getType( dueDate ) ) {
-			LogError(("The dueDate property is not found in reminder."));
-			validReminder = false;
-		}
-
-
-		if (validReminder) {
-			reminder.title = json_getValue(title);
-			reminder.date = json_getValue(dueDate);
-			reminder.time = json_getValue(dueTime);
-			sendAction(WriteReminder, true);//Put this action on the front of the queue
-		}
+		remindersReceived = true;
 	}
+
+	json_t const* eventJson = json_getProperty( json, "calendar" );
+	if ( !eventJson|| JSON_ARRAY != json_getType( eventJson) ) {
+		LogInfo(("The calendar property is not found."));
+	}
+	else {
+		eventsReceived = true;
+	}
+
+	if (remindersReceived || eventsReceived) {
+		parseJSONEventsReminders(remindersReceived ? remindersJson : NULL, eventsReceived ? eventJson : NULL);
+		sendAction(WriteReminder, true);//Put this action on the front of the queue
+	}
+
+
 	json_t const* message = json_getProperty( json, "message" );
 	if ( !message || JSON_TEXT != json_getType( message ) ) {
 		LogInfo(("The message property is not found."));

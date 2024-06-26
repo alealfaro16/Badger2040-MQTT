@@ -13,6 +13,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 # Initialize the SDK
+set(PICO_CXX_ENABLE_EXCEPTIONS 1)
 pico_sdk_init()
 
 set(TWIN_THING_PICO_CONFIG_PATH ${CMAKE_CURRENT_LIST_DIR}/port/twinThing)

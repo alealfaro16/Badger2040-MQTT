@@ -1,5 +1,6 @@
 add_executable(${NAME}
         main.cpp
+        ble_server.cpp
         WifiHelper.cpp
         TCPTransport.cpp
         MQTTAgent.cpp
@@ -28,13 +29,18 @@ target_link_libraries(${NAME}
      FREERTOS_PORT
      LWIP_PORT
      pico_cyw43_arch_lwip_sys_freertos
+     pico_btstack_ble      # BLE stack
+     pico_btstack_cyw43
      coreMQTT
      coreMQTTAgent
      tiny_json
      badger2040
      hardware_rtc
-	)
-	
+     hardware_adc
+)
+# run the compile_gatt compiler to create a GATT file from the BTstack GATT file:
+pico_btstack_make_gatt_header(${NAME} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/temp_sensor.gatt")
+
 target_include_directories(${NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
      )
@@ -71,6 +77,9 @@ target_compile_definitions(${NAME} PRIVATE
     MQTT_PASSWD=\"$ENV{MQTT_PASSWD}\"
     MQTT_HOST=\"$ENV{MQTT_HOST}\"
     MQTT_PORT=$ENV{MQTT_PORT}
+    WIFI_ENABLED=1
+    BLE_ENABLED=0
+    CYW43_ENABLE_BLUETOOTH=BLE_ENABLED  # otherwise cyw43_arch_init() will not initialize BLE
 )
 
 # create map/bin/hex file etc.

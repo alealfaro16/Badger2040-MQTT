@@ -22,18 +22,27 @@
 #include "MQTTConfig.h"
 #include "MQTTInterface.h"
 #include "badger2040.hpp"
+#include <cstdint>
 #include <string.h>
 #include "timers.h"
+#include <optional>
 
 using namespace pimoroni;
 
 #define BADGER_QUEUE_LEN 	5
 #define MQTT_TOPIC_BADGER_STATE "Badger/state"
-#define BADGER_BUFFER_LEN 	512
-#define BADGER_JSON_LEN 	512
-#define BADGER_JSON_POOL 	10
+#define BADGER_BUFFER_LEN	2048	
+#define BADGER_JSON_LEN 	2048
+#define BADGER_JSON_POOL 	50
+#define BADGER_BUTTON_USED  4
 
-enum BadgerAction {WriteToScreen, DisplayTime, WriteReminder};
+enum BadgerAction {WriteToScreen, DisplayTime, WriteReminder, ScrollDown, ScrollUp, DisplayReminders, DisplayEvents};
+enum BadgerButtons{
+	UP,
+	DOWN,
+	A,
+	B
+};
 
 class BadgerAgent : public Agent, public SwitchObserver {
 public:
@@ -91,9 +100,9 @@ protected:
 
 private:
 	/***
-	 * Toggle LED state from within an intrupt
+	 * Handle button press from within an interrupt
 	 */
-	void intToggle();
+	void handleButtonInput(uint8_t gp);
 
 	/***
 	 * Execute the state on the LED and notify MQTT interface
@@ -128,24 +137,50 @@ private:
 	void writeToDisplay(std::string msg);
 	std::string msgToDisplay;
 
-	struct reminder_t {
+	typedef struct reminder_t {
 		std::string title;
 		std::string date;
 		std::string time;
-	}reminder;
-	std::vector<reminder_t> reminderVec;
-	void writeReminderToDisplay(reminder_t &reminder);
+		enum Type {
+			REMINDER,
+			EVENT,
+			NUM_TYPES
+		};
 
+		enum Type type;
+		std::array<std::string, NUM_TYPES> stringLUT = {"Reminder", "Calendar"};
+	}reminder_t;
+
+	typedef struct event_t {
+		std::string title;
+		std::string date;
+		std::string time;
+	} event_t;
+	
+	int reminderIdx = 0;
+	std::vector<reminder_t> reminderVec;
+	std::vector<event_t> eventVec;
+	std::optional<BadgerAgent::reminder_t>  processJsonToReminder(json_t const* reminderJson, reminder_t::Type type);
+	void parseJSONEventsReminders(json_t const* reminderList, json_t const* eventList);
+	void writeReminderToDisplay(void);
+	void displayEvents(void);
 	//LED and switch pads
 	Badger2040 badger;
-	uint8_t xSpstGP;
 
-	// Switch manage to manage the SPST switch
-	SwitchMgr *pSwitchMgr = NULL;
+	// Members and methods to handle button presses
+	void handleScrollAction(bool isUp);
+	std::array<SwitchMgr*, BADGER_BUTTON_USED> pSwitchMgrs;
+	std::array<int, BADGER_BUTTON_USED> badgerButtonLUT = { Badger2040::UP, Badger2040::DOWN, Badger2040::A, Badger2040::B};
+	std::array<enum BadgerAction, BADGER_BUTTON_USED> badgerButtonActLUT = {ScrollUp, ScrollDown, DisplayReminders, DisplayEvents};
+	std::array<std::string , BADGER_BUTTON_USED> badgerButtonStringLUT = { "Up", "Down", "A", "B"};
+	std::map<int, int> badgerButtonToEnum = { 
+		{ Badger2040::UP, UP},
+		{ Badger2040::DOWN, DOWN},
+		{ Badger2040::A, A}, 
+		{ Badger2040::B, B}};
 	
 	//Variables for wrapping text around display
 	int textSpacing;
-	int lenPerChar;	
 	int charPerLine;
 
 	//Queue of commands

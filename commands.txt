@@ -9,3 +9,14 @@ openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" 
 Mosquitto:
 mosquitto_sub -d -h 192.168.4.32 -t TNG/pico/#
 mosquitto_pub -d -h 192.168.4.32 -t GRP/LED/TPC/req -m "{\"source\":\"pc\",\"on\":false}"
+
+LLDB pico debug
+
+Start debug session:
+lldb *.elf
+gdb-remote localhost:3333
+process plugin packet monitor reset halt
+continue
+
+Stop process
+process interrupt

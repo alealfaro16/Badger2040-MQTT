@@ -25,6 +25,7 @@
 #include "MQTTAgentObserver.h"
 #include "BadgerAgent.h"
 #include "MQTTRouterBadger.h"
+#include "ble_server.h"
 
 
 //Check these definitions where added from the makefile
@@ -49,10 +50,6 @@
 #ifndef MQTT_PORT
 #error "MQTT_PORT not defined"
 #endif
-
-// LED PAD defintions
-#define LED_PAD  	   CYW43_WL_GPIO_LED_PIN
-#define SWITCH_PAD	   13 //Badger Button B
 
 
 #define TASK_PRIORITY			( tskIDLE_PRIORITY + 1UL )
@@ -113,10 +110,54 @@ void runTimeStats(   ){
 }
 
 
-void main_task(void *params){
+void sntpInit(void) {
 
-	printf("Main task started\n");
+	//Setup SNTP to get time
+	WifiHelper::sntpAddServer("0.uk.pool.ntp.org");
+	WifiHelper::sntpAddServer("1.uk.pool.ntp.org");
+	WifiHelper::sntpAddServer("2.uk.pool.ntp.org");
+	WifiHelper::sntpAddServer("3.uk.pool.ntp.org");
+	WifiHelper::sntpSetTimezone(-7); //California UTC offset
+	WifiHelper::sntpStartSync();
+}
 
+const char mqttTarget[] = MQTT_HOST;
+const int mqttPort = MQTT_PORT;
+const char mqttClient[] = MQTT_CLIENT;
+const char mqttUser[] = MQTT_USER;
+const char mqttPwd[] = MQTT_PASSWD;
+	
+void MQTTInit(MQTTAgent& agent, MQTTAgentObserver& obs) {
+
+	// Setup for MQTT Connection
+	agent.setObserver(&obs);
+	agent.credentials(mqttUser, mqttPwd, mqttClient);
+
+	printf("Connecting to: %s(%d)\n", mqttTarget, mqttPort);
+	printf("Client id: %.4s...\n", agent.getId());
+	printf("User id: %.4s...\n", mqttUser);
+
+	agent.mqttConnect(mqttTarget, mqttPort, true);
+	agent.start(TASK_PRIORITY);
+
+}
+
+void checkWifi(void) {
+
+	if (!WifiHelper::isJoined()){
+		printf("AP Link is down\n");
+
+		if (WifiHelper::join(WIFI_SSID, WIFI_PASSWORD)){
+			printf("Connect to Wifi\n");
+		} else {
+			printf("Failed to connect to Wifi \n");
+		}
+	}
+}
+
+
+void wifiInit(void) {
+	
 	if (WifiHelper::init()){
 		printf("Wifi Controller Initialised\n");
 	} else {
@@ -144,57 +185,45 @@ void main_task(void *params){
 	WifiHelper::getIPAddressStr(ipStr);
 	printf("IP ADDRESS: %s\n", ipStr);
 
-	//Setup SNTP to get time
-	WifiHelper::sntpAddServer("0.uk.pool.ntp.org");
-	WifiHelper::sntpAddServer("1.uk.pool.ntp.org");
-	WifiHelper::sntpAddServer("2.uk.pool.ntp.org");
-	WifiHelper::sntpAddServer("3.uk.pool.ntp.org");
-	WifiHelper::sntpSetTimezone(-7); //California UTC offset
-	WifiHelper::sntpStartSync();
-	
-	// Setup for MQTT Connection
-	char mqttTarget[] = MQTT_HOST;
-	int mqttPort = MQTT_PORT;
-	char mqttClient[] = MQTT_CLIENT;
-	char mqttUser[] = MQTT_USER;
-	char mqttPwd[] = MQTT_PASSWD;
+}
 
+
+void main_task(void *params){
+
+	printf("Main task started\n");
+#if WIFI_ENABLED
+	wifiInit();
+	sntpInit();
+	
 	MQTTAgent mqttAgent;
 	MQTTAgentObserver mqttObs;
-
-	mqttAgent.setObserver(&mqttObs);
-	mqttAgent.credentials(mqttUser, mqttPwd, mqttClient);
-
-	printf("Connecting to: %s(%d)\n", mqttTarget, mqttPort);
-	printf("Client id: %.4s...\n", mqttAgent.getId());
-	printf("User id: %.4s...\n", mqttUser);
-
-	mqttAgent.mqttConnect(mqttTarget, mqttPort, true);
-	mqttAgent.start(TASK_PRIORITY);
+	MQTTInit(mqttAgent, mqttObs);
 
 	//Create Badger Agent and router
 	BadgerAgent badAgent(&mqttAgent);
 	badAgent.start("BadAgent", TASK_PRIORITY);
 	MQTTRouterBadger badRouter(&badAgent);
 	mqttAgent.setRouter(&badRouter);
+#if BLE_ENABLED	
+	BleServer_Init();
+	BleServer_SetupBLE();
+#endif
+#elif  BLE_ENABLED
+	BleServer_Init();
+#else
 
+#error "BLE nor WiFi is enabled"
+#endif
+	
 
     while(true) {
 
     	//runTimeStats();
 
         vTaskDelay(3000);
-
-        if (!WifiHelper::isJoined()){
-        	printf("AP Link is down\n");
-
-        	if (WifiHelper::join(WIFI_SSID, WIFI_PASSWORD)){
-				printf("Connect to Wifi\n");
-			} else {
-				printf("Failed to connect to Wifi \n");
-			}
-        }
-
+#if WIFI_ENABLED
+	checkWifi();
+#endif
 
     }
 
