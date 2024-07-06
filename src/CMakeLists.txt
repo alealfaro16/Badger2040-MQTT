@@ -44,7 +44,10 @@ pico_btstack_make_gatt_header(${NAME} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/temp_se
 target_include_directories(${NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
      )
-     
+
+add_subdirectory(Views)
+add_subdirectory(NVS)
+
 if (NOT DEFINED ENV{WIFI_SSID})
 	message(FATAL_ERROR "WIFI_SSID Environment variable not defined")
 endif()

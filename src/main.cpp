@@ -9,6 +9,7 @@
 #include "hardware/rtc.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
+#include <cstddef>
 #include <stdio.h>
 
 #include "lwip/ip4_addr.h"
@@ -26,6 +27,7 @@
 #include "BadgerAgent.h"
 #include "MQTTRouterBadger.h"
 #include "ble_server.h"
+#include "NVSOnboard.h"
 
 
 //Check these definitions where added from the makefile
@@ -156,6 +158,36 @@ void checkWifi(void) {
 }
 
 
+void getWifiCredentialNVS(char* ssid, char* password, size_t maxSize) {
+	
+	NVSOnboard* nvs = NVSOnboard::getInstance();
+	nvs->printNVS();
+	//Get SSID
+	if (nvs->contains("SSID")){
+		 size_t ssidSize = maxSize;
+		 nvs->get_str("SSID", ssid, &ssidSize); 
+		 printf("%s = %s\n", "SSID", ssid);
+	} else {
+		printf("%s Key not present\n", "SSID");
+		nvs->set_str("SSID", WIFI_SSID);
+		nvs->commit();
+		strncpy(ssid,WIFI_SSID, maxSize);
+	}
+	
+	//Get password
+	if (nvs->contains("PASSWORD")){
+		size_t passSize = maxSize;
+		nvs->get_str("PASSWORD", password, &passSize); 
+		printf("%s = %s\n", "PASSWORD", password);
+	} else {
+		printf("%s Key not present\n", "PASSWORD");
+		nvs->set_str("PASSWORD", WIFI_PASSWORD);
+		nvs->commit();
+		strncpy(password, WIFI_PASSWORD, maxSize);
+	}
+}
+
+
 void wifiInit(void) {
 	
 	if (WifiHelper::init()){
@@ -164,11 +196,17 @@ void wifiInit(void) {
 		printf("Failed to initialise controller\n");
 		return;
 	}
+	
+	//Check NVS for Wi-Fi credentials
+	size_t sizeMaxVal = 30;
+	char ssidVal[sizeMaxVal];
+	char pswdVal[sizeMaxVal];
+	getWifiCredentialNVS(ssidVal, pswdVal, sizeMaxVal); 
 
 
-	printf("Connecting to WiFi... %s \n", WIFI_SSID);
+	printf("Connecting to WiFi... %s\n", ssidVal);
 
-	if (WifiHelper::join(WIFI_SSID, WIFI_PASSWORD)){
+	if (WifiHelper::join(ssidVal, pswdVal)){
 		printf("Connect to Wifi\n");
 	} else {
 		printf("Failed to connect to Wifi \n");

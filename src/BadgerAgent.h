@@ -12,9 +12,16 @@
 
 
 #include "Agent.h"
+#include "View.h"
+#include "TimeView.h"
+#include "MessageView.h"
+#include "ReminderView.h"
+#include "EventView.h"
+#include "EventReminder.h"
 #include "SwitchObserver.h"
 #include "SwitchMgr.h"
 #include "tiny-json.h"
+#include "NVSOnboard.h"
 
 #include "pico/stdlib.h"
 #include "queue.h"
@@ -26,6 +33,7 @@
 #include <string.h>
 #include "timers.h"
 #include <optional>
+#include <memory>
 
 using namespace pimoroni;
 
@@ -36,7 +44,8 @@ using namespace pimoroni;
 #define BADGER_JSON_POOL 	50
 #define BADGER_BUTTON_USED  4
 
-enum BadgerAction {WriteToScreen, DisplayTime, WriteReminder, ScrollDown, ScrollUp, DisplayReminders, DisplayEvents};
+
+enum BadgerAction { ScrollDown, ScrollUp, RefreshScreen, SAVE_TO_NVS};
 enum BadgerButtons{
 	UP,
 	DOWN,
@@ -44,12 +53,17 @@ enum BadgerButtons{
 	B
 };
 
+struct JsonFieldFlag{
+	unsigned char reminders : 1;
+	unsigned char events: 1;
+	unsigned char message: 1;
+};
+
+
 class BadgerAgent : public Agent, public SwitchObserver {
 public:
 	/***
 	 * Constructor
-	 * @param ledGP - GPIO Pad of LED to control
-	 * @param spstGP - GPIO Pad of SPST non latched switch
 	 * @param interface - MQTT Interface that state will be notified to
 	 */
 	BadgerAgent(MQTTInterface *interface);
@@ -115,8 +129,6 @@ private:
 	//Clock and time
 	TimerHandle_t clockUpdateTimer;
 	int skipTimeDisplayCount = 0; //Used to skip the time display for x Amount of seconds
-	void displayTime(void);
-	void drawClock(uint8_t x, uint8_t y, uint8_t handLen, uint8_t hour, uint8_t min);
 
 	/***
 	 * Parse a JSON string and add request to queue
@@ -132,46 +144,21 @@ private:
 
 	//State of the LED
 	bool xState = false;
-
-	//String to write to screen
-	void writeToDisplay(std::string msg);
-	std::string msgToDisplay;
-
-	typedef struct reminder_t {
-		std::string title;
-		std::string date;
-		std::string time;
-		enum Type {
-			REMINDER,
-			EVENT,
-			NUM_TYPES
-		};
-
-		enum Type type;
-		std::array<std::string, NUM_TYPES> stringLUT = {"Reminder", "Calendar"};
-	}reminder_t;
-
-	typedef struct event_t {
-		std::string title;
-		std::string date;
-		std::string time;
-	} event_t;
 	
-	int reminderIdx = 0;
-	std::vector<reminder_t> reminderVec;
-	std::vector<event_t> eventVec;
-	std::optional<BadgerAgent::reminder_t>  processJsonToReminder(json_t const* reminderJson, reminder_t::Type type);
+	//Json methods
+	std::optional<eventReminder_t>  processJsonToReminder(json_t const* reminderJson);
 	void parseJSONEventsReminders(json_t const* reminderList, json_t const* eventList);
-	void writeReminderToDisplay(void);
-	void displayEvents(void);
-	//LED and switch pads
+	// Json decoding buffer
+	json_t pJsonPool[ BADGER_JSON_POOL ];
+	
+	//Badger class
 	Badger2040 badger;
 
 	// Members and methods to handle button presses
 	void handleScrollAction(bool isUp);
 	std::array<SwitchMgr*, BADGER_BUTTON_USED> pSwitchMgrs;
 	std::array<int, BADGER_BUTTON_USED> badgerButtonLUT = { Badger2040::UP, Badger2040::DOWN, Badger2040::A, Badger2040::B};
-	std::array<enum BadgerAction, BADGER_BUTTON_USED> badgerButtonActLUT = {ScrollUp, ScrollDown, DisplayReminders, DisplayEvents};
+	std::array<enum BadgerAction, BADGER_BUTTON_USED> badgerButtonActLUT = {ScrollUp, ScrollDown, RefreshScreen, RefreshScreen};
 	std::array<std::string , BADGER_BUTTON_USED> badgerButtonStringLUT = { "Up", "Down", "A", "B"};
 	std::map<int, int> badgerButtonToEnum = { 
 		{ Badger2040::UP, UP},
@@ -179,12 +166,11 @@ private:
 		{ Badger2040::A, A}, 
 		{ Badger2040::B, B}};
 	
-	//Variables for wrapping text around display
-	int textSpacing;
-	int charPerLine;
-
 	//Queue of commands
 	QueueHandle_t xCmdQ;
+
+	//NVS
+	NVSOnboard* nvs;
 
 	//Timer for blinking led
 	TimerHandle_t blinkTimer;
@@ -194,9 +180,18 @@ private:
 	// Message buffer handle
 	MessageBufferHandle_t xBuffer = NULL;
 
-	// Json decoding buffer
-	json_t pJsonPool[ BADGER_JSON_POOL ];
-
+	//Views
+	std::shared_ptr<View> currentView;
+	std::shared_ptr<TimeView> timeView;
+	std::shared_ptr<MessageView> messageView;
+	std::shared_ptr<ReminderView> reminderView;
+	std::shared_ptr<EventView> eventView;
+	
+	//View methods
+	void refreshDisplay(void);
+	void setView(std::shared_ptr<View> view) {
+		currentView = view;
+	}
 
 
 };

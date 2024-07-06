@@ -1,6 +1,6 @@
 #!/bin/sh
 export MQTT_CLIENT="badger"
-export MQTT_USER=""
+export MQTT_USER="badger"
 export MQTT_PASSWD=""
 export MQTT_HOST="192.168.4.32"
 export MQTT_PORT=1883
