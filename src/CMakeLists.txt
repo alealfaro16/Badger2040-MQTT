@@ -37,6 +37,8 @@ target_link_libraries(${NAME}
      badger2040
      hardware_rtc
      hardware_adc
+     hardware_gpio
+     hardware_pwm
 )
 # run the compile_gatt compiler to create a GATT file from the BTstack GATT file:
 pico_btstack_make_gatt_header(${NAME} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/temp_sensor.gatt")

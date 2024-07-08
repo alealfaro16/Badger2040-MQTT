@@ -6,6 +6,7 @@
  */
 
 #include "MQTTRouterBadger.h"
+#include "BadgerAgent.h"
 #include "MQTTTopicHelper.h"
 
 #define BADGER_TOPIC  "Badger"
@@ -41,6 +42,8 @@ void MQTTRouterBadger::subscribe(MQTTInterface *interface){
 	if (pBadgerTopic != NULL){
 		LogInfo(("Subscribing to topic: %s",pBadgerTopic)); 
 		interface->subToTopic(pBadgerTopic, 1);
+		//Refresh screen once initialization is done
+		pAgent->sendAction(RefreshScreen);
 	}
 }
 

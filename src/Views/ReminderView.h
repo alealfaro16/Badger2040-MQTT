@@ -11,7 +11,6 @@ using namespace pimoroni;
 
 using reminder_t = eventReminder_t;
 
-constexpr float REMINDER_TEXT_SIZE = 0.7f;
 class ReminderView : public View {
 	
 public:
@@ -22,11 +21,9 @@ public:
 	ReminderView(Badger2040& badge, int& skipCount) : View(badge), skipDisplayCount(skipCount){};
 	void displayView(void) override;
 
-    int& skipDisplayCount;
-
-
-	int reminderIdx = 0;
-	std::vector<reminder_t> reminderVec;
+	int getReminderNum(void) {
+		return reminderVec.size();
+	}
 
 	void addReminder(reminder_t newReminder) {
 		reminderVec.push_back(newReminder);
@@ -52,7 +49,12 @@ public:
 
 		return true;
 	}
-	
+private:
+
+    int& skipDisplayCount;
+	int reminderIdx = 0;
+	std::vector<reminder_t> reminderVec;
+
 };
 
 #endif

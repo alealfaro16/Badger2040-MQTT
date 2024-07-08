@@ -1,4 +1,4 @@
-target_sources(${NAME} PRIVATE  ${CMAKE_CURRENT_LIST_DIR}/TimeView.cpp
+target_sources(${NAME} PRIVATE  ${CMAKE_CURRENT_LIST_DIR}/MainView.cpp
                                 ${CMAKE_CURRENT_LIST_DIR}/MessageView.cpp
                                 ${CMAKE_CURRENT_LIST_DIR}/ReminderView.cpp
                                 ${CMAKE_CURRENT_LIST_DIR}/EventView.cpp

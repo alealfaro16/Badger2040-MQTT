@@ -274,7 +274,7 @@ void main_task(void *params){
 void vLaunch( void) {
     TaskHandle_t task;
 
-    xTaskCreate(main_task, "MainThread", 2048, NULL, TASK_PRIORITY, &task);
+    xTaskCreate(main_task, "MainThread", 3072, NULL, TASK_PRIORITY, &task);
 
     /* Start the tasks and timer running. */
     vTaskStartScheduler();
