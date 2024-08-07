@@ -13,11 +13,15 @@
 #include "MQTTTopicHelper.h"
 #include "MessageView.h"
 #include "ReminderView.h"
+
+#include "WeatherServiceRequest.h"
+
+
 #include "SwitchMgr.h"
 #include "badger2040.hpp"
 #include "hardware/rtc.h"
 #include "hardware/pwm.h"
-#include "logging_stack.h"
+#include "core_mqtt_config.h"
 #include "pico/time.h"
 #include "pico/types.h"
 #include "projdefs.h"
@@ -30,70 +34,10 @@
 #include <stdexcept>
 #include <memory.h>
 #include <bit>
-#include "MusicDefs.h"
 
 //Local enumerator of the actions to be queued
 
 #define NUM_BLINKS_MESSAGE 10
-#define SONG_TASK_PRIORITY			( tskIDLE_PRIORITY + 1UL )
-
-uint32_t pwm_set_freq_duty(uint slice_num,
-       uint chan,uint32_t f, int d)
-{
-	uint32_t clock = 125000000;
-	uint32_t divider16 = clock / f / 4096 + 
-		(clock % (f * 4096) != 0);
-	if (divider16 / 16 == 0)
-		divider16 = 16;
-	uint32_t wrap = clock * 16 / divider16 / f - 1;
-	pwm_set_clkdiv_int_frac(slice_num, divider16/16,
-						 divider16 & 0xF);
-	pwm_set_wrap(slice_num, wrap);
-	pwm_set_chan_level(slice_num, chan, wrap * d / 100);
-	return wrap;
-}
-
-void BadgerAgent::playTone(int freq) {
-	pwm_set_freq_duty(pwmSlice, pwmChan, freq, 75);
-}
-
-void BadgerAgent::silenceSpeaker(void) {
-	pwm_set_chan_level(pwmSlice, pwmChan, 0);
-}
-
-void BadgerAgent::playSong(void) {
-
-	//std::string tone = initSong[toneIndex];
-	if (toneIndex == toneNum) {
-		xTimerStop(songTimer, 0);
-		toneIndex = 0;
-		silenceSpeaker();
-		return;
-	}
-	int divider = nokiaMelody[2*toneIndex + 1];
-	int noteDuration = 0;
-	if (divider > 0) {
-		// regular note, just proceed
-		noteDuration = (wholeNote) / divider;
-	} else if (divider < 0) {
-		// dotted notes are represented with negative durations!!
-		noteDuration = (wholeNote) / abs(divider);
-		noteDuration *= 1.5; // increases the duration in half for dotted notes
-	}
-
-	if (nokiaMelody[2*toneIndex] == 0) silenceSpeaker();
-	else {
-		//assert(toneMap.find(tone) != toneMap.end());
-		playTone(nokiaMelody[2*toneIndex]);
-	}
-	if( xTimerChangePeriod( songTimer, noteDuration/ portTICK_PERIOD_MS, 100 )
-                                                            != pdPASS ) {
-		LogError(("Couldn't change the period of the timer!"));
-	}
-
-	toneIndex++;
-}
-
 
 /***
  * Constructor
@@ -101,7 +45,7 @@ void BadgerAgent::playSong(void) {
  * @param spstGP - GPIO Pad of SPST non latched switch
  * @param interface - MQTT Interface that state will be notified to
  */
-BadgerAgent::BadgerAgent(MQTTInterface *interface) : currentView(NULL), pwmSlice(pwm_gpio_to_slice_num(BUZZER_GPIO_PIN)), pwmChan(pwm_gpio_to_channel(BUZZER_GPIO_PIN)){
+BadgerAgent::BadgerAgent(MQTTInterface *interface) : currentView(NULL), player(BUZZER_GPIO_PIN) {
 
 	badger.init();
 	pInterface = interface;
@@ -117,15 +61,10 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) : currentView(NULL), pwmSlice
 	currentView->displayView();
 
 	//Construct switch observer and listen
-	for (int i = 0; i < BADGER_BUTTON_USED; i++) {
+	for (int i = 0; i < NUM_BUTTONS; i++) {
 		pSwitchMgrs[i] = new SwitchMgr(badgerButtonLUT[i], false);
 		pSwitchMgrs[i]->setObserver(this);
 	}
-
-	//Init PWM for buzzer
-	gpio_set_function(BUZZER_GPIO_PIN, GPIO_FUNC_PWM);
-	uint32_t wrap =  pwm_set_freq_duty(pwmSlice, pwmChan, toneMap["B2"], 100);
-	pwm_set_enabled(pwmSlice, true);
 
 	// Queue for actions commands for the class
 	xCmdQ = xQueueCreate( BADGER_QUEUE_LEN, sizeof(BadgerAction));
@@ -179,7 +118,15 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) : currentView(NULL), pwmSlice
 		agent->setView(agent->mainView);
 		agent->mainView->setScreen(MainView::CLOCK_SCREEN);
 		agent->sendAction(RefreshScreen);
+
+		//Update weather every 10 minutes
+		agent->weatherUpdateTimer++;
+		if (agent->weatherUpdateTimer > agent->weatherUpdateInterval) {
+			agent->weatherUpdateTimer = 0;
+			agent->sendAction(GetWeather);
+		}
 	};
+
 	clockUpdateTimer = xTimerCreate("Clock timer", pdMS_TO_TICKS(1000*60), pdTRUE, static_cast<void*>(this), clockUpdateCallback);
 	if( xTimerStart( clockUpdateTimer, 0 ) != pdPASS )
 	{
@@ -191,28 +138,12 @@ BadgerAgent::BadgerAgent(MQTTInterface *interface) : currentView(NULL), pwmSlice
 	//Initialize NVS and load json in memory
 	nvs = NVSOnboard::getInstance();
 	loadJSONFromNVS();
+
+	//Initlaize speaker and play song
+	player.playSong();
 	
 	//Set to main screen
 	mainView->setScreen(MainView::MAIN_SCREEN);
-	
-	//Define the duration of a whole note in ms and calculate the number of tones in the song
-	wholeNote = (60000*4)/tempo;
-	// sizeof gives the number of bytes, each int value is composed of two bytes (16 bits)
-	// there are two values per note (pitch and duration), so for each note there are four bytes
-	toneNum = sizeof(nokiaMelody)/sizeof(nokiaMelody[0])/2;
-	//Create timer to play song
-	auto songTimerCallback = [](TimerHandle_t timer) {
-		BadgerAgent* agent = static_cast<BadgerAgent*>(pvTimerGetTimerID(timer));
-		assert(agent);
-		agent->playSong();
-	};
-	songTimer = xTimerCreate("Song timer", pdMS_TO_TICKS(300), pdTRUE, static_cast<void*>(this), songTimerCallback);
-	if( xTimerStart( songTimer, 0 ) != pdPASS )
-	{
-		/* The timer could not be set into the Active
-				 state. */
-		LogError(("Song timer couldn't be started"));
-	}
 
 }
 
@@ -320,6 +251,11 @@ void BadgerAgent::handleButtonInput(uint8_t gp){
 		//Set view
 		setView(eventView);
 	}
+	else if (buttonType == C) {
+		//Set view
+		setView(mainView);
+	}
+	
 	BadgerAction action = badgerButtonActLUT[buttonType];
 	BaseType_t res = xQueueSendToFrontFromISR(xCmdQ, (void *)&action, NULL);
 	if (res != pdTRUE){
@@ -367,6 +303,10 @@ void BadgerAgent::run(){
 				case RefreshScreen: {
 					refreshDisplay();
 					break;
+				}	
+				case GetWeather: {
+					getWeather();
+					break;
 				}
 			}
 			taskYIELD();
@@ -409,7 +349,7 @@ void BadgerAgent::blinkLED(int blinks){
  * @return - words
  */
  configSTACK_DEPTH_TYPE BadgerAgent::getMaxStackSize(){
-	 return 1024;
+	 return 1024*3; //Was 1024
  }
 
 std::optional<eventReminder_t> BadgerAgent::processJsonToReminder(json_t const* reminderJson) {
@@ -417,6 +357,11 @@ std::optional<eventReminder_t> BadgerAgent::processJsonToReminder(json_t const* 
 	char const* titleJ = json_getPropertyValue( reminderJson, "title" );
 	char const* dateJ = json_getPropertyValue( reminderJson, "date" );
 	char const* timeJ = json_getPropertyValue( reminderJson, "time" );
+	json_t const* timeField = json_getProperty( reminderJson, "epoch time" );
+	if (timeField != NULL && JSON_INTEGER == json_getType(timeField)) {
+		int epochTime = json_getInteger(timeField);
+	}
+
 	if ( titleJ  && dateJ && timeJ) {
 		eventReminder_t newEventReminder = { 
 			.title = titleJ,
@@ -463,65 +408,6 @@ void BadgerAgent::parseJSONEventsReminders(json_t const* reminderList, json_t co
 * Parse a JSON string and add request to queue
 * @param str - JSON Strging
 */
-//void BadgerAgent::parseJSON(char *str){
-//
-//	std::string sCopy(str);
-//	json_t const* json = json_create( str, pJsonPool, BADGER_JSON_POOL);
-//	if ( !json ) {
-//		LogError(("Error json create."));
-//		return ;
-//	}
-//	
-//	
-//	bool remindersReceived = false, eventsReceived = false;
-//	json_t const* remindersJson = json_getProperty( json, "reminders" );
-//	if ( !remindersJson|| JSON_ARRAY != json_getType( remindersJson) ) {
-//		LogDebug(("The reminders property is not found."));
-//
-//	}
-//	else {
-//		remindersReceived = true;
-//	}
-//
-//	json_t const* eventJson = json_getProperty( json, "calendar" );
-//	if ( !eventJson|| JSON_ARRAY != json_getType( eventJson) ) {
-//		LogDebug(("The calendar property is not found."));
-//	}
-//	else {
-//		eventsReceived = true;
-//	}
-//
-//	if (remindersReceived || eventsReceived) {
-//		parseJSONEventsReminders(remindersReceived ? remindersJson : NULL, eventsReceived ? eventJson : NULL);
-//		messageView->setMessage("New events and reminders. Press A to see reminder and B to see events");
-//		setView(messageView);
-//		blinkLED(NUM_BLINKS_MESSAGE);
-//		sendAction(RefreshScreen, true);
-//		if (remindersReceived) {
-//			nvs->set_str("reminders", sCopy.c_str());
-//			nvs->commit();
-//		}
-//	}
-//
-//
-//	json_t const* message = json_getProperty( json, "message" );
-//	if ( !message || JSON_TEXT != json_getType( message ) ) {
-//		LogDebug(("The message property is not found."));
-//	}
-//	else {
-//		std::string msgToDisplay = json_getValue(message);
-//		messageView->setMessage(msgToDisplay);
-//		setView(messageView);
-//		blinkLED(NUM_BLINKS_MESSAGE);
-//		sendAction(RefreshScreen, true);
-//	}
-//
-//}
-
-/***
-* Parse a JSON string and add request to queue
-* @param str - JSON Strging
-*/
 void BadgerAgent::parseJSON(char *str){
 
 	json_t const* subJsons[NUM_FIELDS];
@@ -529,6 +415,7 @@ void BadgerAgent::parseJSON(char *str){
 	JsonFieldFlag fields = jsonFieldsPresent(str, subJsons);
 
 	if (fields.b.events|| fields.b.reminders) {
+		LogInfo(("%s %s found", fields.b.reminders ? "Reminders" : "", fields.b.events ? "Events" : ""));
 		parseJSONEventsReminders(fields.b.reminders ? subJsons[REMINDERS] : NULL, fields.b.events ? subJsons[EVENTS] : NULL);
 		messageView->setMessage("New events and reminders. Press A to see reminder and B to see events");
 		setView(messageView);
@@ -536,9 +423,11 @@ void BadgerAgent::parseJSON(char *str){
 		sendAction(RefreshScreen, true);
 		nvs->set_str("jsons", cleanStr.c_str());
 		nvs->commit();
+		player.playSong();
 	}
 
 	if (fields.b.message) {
+		LogInfo(("Message found"));
 		std::string msgToDisplay = json_getValue(subJsons[MESSAGES]);
 		messageView->setMessage(msgToDisplay);
 		setView(messageView);
@@ -578,7 +467,7 @@ void BadgerAgent::loadJSONFromNVS(void) {
 */
 JsonFieldFlag BadgerAgent::jsonFieldsPresent(char *str, json_t const* outJsons[]){
 	
-	JsonFieldFlag fields;
+	JsonFieldFlag fields = {0};
 	json_t const* json = json_create( str, pJsonPool, BADGER_JSON_POOL);
 	if ( !json ) {
 		LogError(("Error json create."));
@@ -644,5 +533,17 @@ void BadgerAgent::addJSON(const void  *jsonStr, size_t len){
 
 
 void BadgerAgent::refreshDisplay(void) {
+		
+	 if (MainView* main = dynamic_cast<MainView*>(currentView.get())) {
+		auto screen = main->getScreen();	
+		if (screen == MainView::CLOCK_SCREEN) {
+		}	
+	 }
+
 	currentView->displayView();
+}
+
+void BadgerAgent::getWeather(void) {
+	WeatherServiceRequest req;
+	mainView->updateWeatherInfo(req);
 }

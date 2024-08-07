@@ -1,8 +1,8 @@
 #ifndef __LWIPOPTS_H__
 #define __LWIPOPTS_H__
 
-
 #include "pico/stdlib.h"
+
 
 #define TCPIP_THREAD_PRIO   2
 #define TCPIP_THREAD_STACKSIZE 2048 //1024
@@ -12,6 +12,8 @@
 #define LWIP_TIMEVAL_PRIVATE 0
 
 #define LWIP_SOCKET                 1
+#define LWIP_SO_RCVBUF				1
+#define RECV_BUFSIZE_DEFAULT		256
 
 #define MEM_LIBC_MALLOC             0
 
@@ -98,5 +100,9 @@ void sntpSetTimeUSec(uint32_t sec, uint32_t us);
 
 //Once an hour
 #define SNTP_UPDATE_DELAY 60000*60
+
+//Optional MEM pools
+#define MEM_USE_POOLS 1
+#define MEMP_USE_CUSTOM_POOLS 1
 
 #endif /* __LWIPOPTS_H__ */

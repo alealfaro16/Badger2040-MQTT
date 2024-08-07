@@ -1,22 +1,5 @@
 add_executable(${NAME}
         main.cpp
-        ble_server.cpp
-        WifiHelper.cpp
-        TCPTransport.cpp
-        MQTTAgent.cpp
-        MQTTInterface.cpp
-        MQTTAgentObserver.cpp
-        MQTTTopicHelper.cpp
-        Agent.cpp
-        GPIOInputMgr.cpp
-        GPIOObserver.cpp
-        LEDAgent.cpp
-        SwitchMgr.cpp
-        SwitchObserver.cpp
-        MQTTRouter.cpp
-        MQTTRouterLED.cpp
-        BadgerAgent.cpp
-        MQTTRouterBadger.cpp
         )
 
 
@@ -29,19 +12,23 @@ target_link_libraries(${NAME}
      FREERTOS_PORT
      LWIP_PORT
      pico_cyw43_arch_lwip_sys_freertos
-     pico_btstack_ble      # BLE stack
-     pico_btstack_cyw43
+     coreHTTP
      coreMQTT
+     urilib
      coreMQTTAgent
+     json_maker
      tiny_json
+     wolfssl
      badger2040
      hardware_rtc
      hardware_adc
      hardware_gpio
      hardware_pwm
+     SPNG
 )
 # run the compile_gatt compiler to create a GATT file from the BTstack GATT file:
-pico_btstack_make_gatt_header(${NAME} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/temp_sensor.gatt")
+#add_subdirectory(BLE)
+#pico_btstack_make_gatt_header(${NAME} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/temp_sensor.gatt")
 
 target_include_directories(${NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
@@ -49,6 +36,12 @@ target_include_directories(${NAME} PRIVATE
 
 add_subdirectory(Views)
 add_subdirectory(NVS)
+add_subdirectory(Agents)
+add_subdirectory(Transport)
+add_subdirectory(GPIO)
+add_subdirectory(HTTP)
+add_subdirectory(MQTT)
+add_subdirectory(MusicPlayer)
 
 if (NOT DEFINED ENV{WIFI_SSID})
 	message(FATAL_ERROR "WIFI_SSID Environment variable not defined")
@@ -82,11 +75,18 @@ target_compile_definitions(${NAME} PRIVATE
     MQTT_PASSWD=\"$ENV{MQTT_PASSWD}\"
     MQTT_HOST=\"$ENV{MQTT_HOST}\"
     MQTT_PORT=$ENV{MQTT_PORT}
+    IPGEOLOCATION=\"$ENV{IPGEOLOCATION}\"
+    OPENWEATHERMAPKEY=\"$ENV{OPENWEATHERMAPKEY}\"
     WIFI_ENABLED=1
     BLE_ENABLED=0
-    CYW43_ENABLE_BLUETOOTH=BLE_ENABLED  # otherwise cyw43_arch_init() will not initialize BLE
+    FREE_RTOS_KERNEL_SMP=1
+    portSUPPORT_SMP=1
+    #CYW43_ENABLE_BLUETOOTH=BLE_ENABLED  # otherwise cyw43_arch_init() will not initialize BLE
 )
 
+target_link_options(${NAME} PRIVATE
+        -Xlinker --print-memory-usage
+)
 # create map/bin/hex file etc.
 pico_add_extra_outputs(${NAME})
 

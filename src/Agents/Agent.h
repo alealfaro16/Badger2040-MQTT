@@ -55,7 +55,11 @@ public:
 	 * @return
 	 */
 	virtual TaskHandle_t getTask();
-
+	/***
+	 * Return core that code is running on
+	 * @return 0 or 1
+	 */
+	virtual uint8_t getCore();
 protected:
 	/***
 	 * Start the task via static function

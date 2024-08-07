@@ -2,6 +2,8 @@
 #ifndef MAINVIEW_H 
 #define MAINVIEW_H
 
+#include "Request.h"
+#include "WeatherServiceRequest.h"
 #include "badger2040.hpp"
 #include "View.h"
 #include "ReminderView.h"
@@ -36,6 +38,8 @@ public:
 		CLOCK_SCREEN,
 		NUM_SCREEN
 	};
+	
+	void updateWeatherInfo(WeatherServiceRequest& req);
 private:
 	//Display functions
 	void displayInitView(void);
@@ -58,6 +62,14 @@ private:
 	};
 
 	int screenIdx = INIT_SCREEN;
+
+	//Weather vars
+	float temp = 0.0f;
+	float tempMin = 0.0f;
+	float tempMax = 0.0f;
+	char desc[20];
+	char loc[20];
+	char icon[5];
 };
 
 #endif

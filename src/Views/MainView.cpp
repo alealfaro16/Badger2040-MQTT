@@ -1,3 +1,4 @@
+#include "ViewUtil.h"
 #include "MainView.h"
 #include "View.h"
 #include "hardware/rtc.h"
@@ -86,8 +87,22 @@ void MainView::displayClockView(void) {
 		drawClock(DISPLAY_WIDTH/4 - 3*TEXT_PADDING, DISPLAY_HEIGHT/2 - 3*TEXT_PADDING, DISPLAY_HEIGHT*0.4, d.hour, d.min);
 		badger.text(dateStr, DISPLAY_WIDTH/2 - 4*TEXT_PADDING, DISPLAY_HEIGHT/4, 0.75f);
 		badger.text(timeStr, DISPLAY_WIDTH/2 + 2*TEXT_PADDING, DISPLAY_HEIGHT/2, 0.75f);
+		
+		if (temp != 0.0f) {
+			//badger.text(loc, DISPLAY_WIDTH/2 + 5* TEXT_PADDING, DISPLAY_HEIGHT/2 +TITLE_TEXT_SPACING, TEXT_SIZE);
+			//std::string weatherString(50,'\0');
+			char weatherString[50];
+			snprintf(weatherString, 50, " %.1f F %s" , temp, desc);
+			badger.text(weatherString, DISPLAY_WIDTH/3  , DISPLAY_HEIGHT/2 +TITLE_TEXT_SPACING, TEXT_SIZE);
+		}
+		else {
+
+			badger.text("--F -------", DISPLAY_WIDTH/3  , DISPLAY_HEIGHT/2 +TITLE_TEXT_SPACING, TEXT_SIZE);
+		}
 		drawSideLabels();
 		badger.update();
+		int sec = get_seconds_from_datetime_t(d);
+		printf("Seconds since epoch: %d\n", sec);
     }
 	else {
 		LogError(("RTC is not initialized"));
@@ -121,5 +136,19 @@ void MainView::drawSideLabels(void) {
 	badger.thickness(DEFAULT_THICKNESS);
 	badger.text("Reminders", TEXT_PADDING, DISPLAY_HEIGHT - (2*TEXT_PADDING), TEXT_SIZE);
 	badger.text("Events", DISPLAY_WIDTH/2 - 4*TEXT_PADDING, DISPLAY_HEIGHT - (2*TEXT_PADDING), TEXT_SIZE);
+	badger.text("Home", 3*DISPLAY_WIDTH/4 + 4*TEXT_PADDING, DISPLAY_HEIGHT - (2*TEXT_PADDING), TEXT_SIZE);
 
+}
+
+void MainView::updateWeatherInfo(WeatherServiceRequest& req) {
+	
+	if (req.getWeather("37.76213", "-122.3943")){
+		req.getTempValues(temp, tempMin, tempMax);
+		req.getDesc(desc);
+		req.getLoc(loc);
+		LogInfo(("Got weather %s, %s, %.2f, %.2f, %.2f", loc, desc, temp, tempMin, tempMax));
+	}
+	else {
+		LogError(("Failed to get weather"));
+	}
 }

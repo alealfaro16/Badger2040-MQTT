@@ -8,6 +8,7 @@
 
 #include "Agent.h"
 #include <string.h>
+#include "hardware/structs/sio.h"
 
 /***
  * Constructor
@@ -54,6 +55,14 @@ unsigned int Agent::getStakHighWater(){
 */
 TaskHandle_t Agent::getTask(){
 	return xHandle;
+}
+
+/***
+* Return core that code is running on
+* @return 0 or 1
+*/
+uint8_t Agent::getCore(){
+	return (uint8_t)sio_hw->cpuid;
 }
 
 

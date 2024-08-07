@@ -6,6 +6,8 @@
  *
  */
 
+#include "MusicAgent.h"
+#include "WeatherServiceRequest.h"
 #include "hardware/rtc.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
@@ -26,8 +28,8 @@
 #include "MQTTAgentObserver.h"
 #include "BadgerAgent.h"
 #include "MQTTRouterBadger.h"
-#include "ble_server.h"
 #include "NVSOnboard.h"
+#include "Request.h"
 
 
 //Check these definitions where added from the makefile
@@ -55,7 +57,6 @@
 
 
 #define TASK_PRIORITY			( tskIDLE_PRIORITY + 1UL )
-
 
 void runTimeStats(   ){
 	TaskStatus_t *pxTaskStatusArray;
@@ -187,9 +188,16 @@ void getWifiCredentialNVS(char* ssid, char* password, size_t maxSize) {
 	}
 }
 
+void debugCB(const int logLevel, const char *const logMessage){
+	printf("WOLFSSL DEBUG(%d): %s\n", logLevel, logMessage);
+}
 
 void wifiInit(void) {
 	
+	wolfSSL_Init();
+	wolfSSL_SetLoggingCb( debugCB);
+	//wolfSSL_Debugging_ON();
+
 	if (WifiHelper::init()){
 		printf("Wifi Controller Initialised\n");
 	} else {
@@ -242,6 +250,7 @@ void main_task(void *params){
 	badAgent.start("BadAgent", TASK_PRIORITY);
 	MQTTRouterBadger badRouter(&badAgent);
 	mqttAgent.setRouter(&badRouter);
+
 #if BLE_ENABLED	
 	BleServer_Init();
 	BleServer_SetupBLE();
@@ -252,7 +261,13 @@ void main_task(void *params){
 
 #error "BLE nor WiFi is enabled"
 #endif
-	
+	//Bind to CORE 1
+	UBaseType_t coreMask = 0x2;
+	vTaskCoreAffinitySet( mqttAgent.getTask(), coreMask );
+
+	//Bind to CORE 0
+	coreMask = 0x1;
+	vTaskCoreAffinitySet( badAgent.getTask(), coreMask );
 
     while(true) {
 
@@ -269,12 +284,12 @@ void main_task(void *params){
 
 
 
-
+#define MAIN_THREAD_STACK_SIZE	(1024*3) 
 
 void vLaunch( void) {
     TaskHandle_t task;
 
-    xTaskCreate(main_task, "MainThread", 3072, NULL, TASK_PRIORITY, &task);
+    xTaskCreate(main_task, "MainThread", MAIN_THREAD_STACK_SIZE, NULL, TASK_PRIORITY, &task);
 
     /* Start the tasks and timer running. */
     vTaskStartScheduler();

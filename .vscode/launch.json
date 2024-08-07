@@ -3,7 +3,7 @@
     "configurations": [
       {
         "name": "Pico Debug",
-        "device": "RP2040",
+        "device": "RP2040_M0_0",
         "gdbPath": "arm-none-eabi-gdb",
         "cwd": "${workspaceRoot}",
         "executable": "${command:cmake.launchTargetPath}",

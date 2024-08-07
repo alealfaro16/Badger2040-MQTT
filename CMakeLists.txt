@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.12)
-
+cmake_minimum_required(VERSION 3.24) #was 3.12
+SET(CMAKE_COLOR_DIAGNOSTICS ON)
 # Change your executable name to something creative!
 set(NAME BadgerMQTT) # <-- Name your project/executable here!
 
@@ -7,6 +7,8 @@ set(PICO_BOARD pico_w)
 
 include(pico_sdk_import.cmake)
 
+set(PICO_EXTRAS_PATH "${CMAKE_CURRENT_LIST_DIR}/../../pico/pico-extras" CACHE STRING "Course Common Lib")
+include(pico_extras_import.cmake)
 # Gooey boilerplate
 project(${NAME} C CXX ASM)
 set(CMAKE_C_STANDARD 11)
@@ -24,25 +26,39 @@ set(COREMQTT_AGENT_PORT_PATH      ${CMAKE_CURRENT_LIST_DIR}/port/CoreMQTT-Agent)
 
 include(lwip_import.cmake)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-#SET(FREERTOS_KERNEL_PATH "${CMAKE_CURRENT_LIST_DIR}/../../lib/FreeRTOS-Kernel" CACHE STRING "Course Common Lib")
+SET(FREERTOS_KERNEL_PATH "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/FreeRTOS-Kernel" CACHE STRING "Course Common Lib")
 SET(FREERTOS_CONFIG_FILE_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/port/FreeRTOS-Kernel" CACHE STRING "Local Config")
 include_directories("${FREERTOS_CONFIG_FILE_DIRECTORY}") 
 include(FreeRTOS_Kernel_import.cmake)
 
-set(CORE_MQTT_DIR "$ENV{CORE_MQTT_PATH}" CACHE STRING "Course Common Lib")
+set(CORE_MQTT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/coreMQTT" CACHE STRING "Course Common Lib")
 include("FreeRTOS-coreMQTT.cmake")
 
-set(CORE_MQTT_AGENT_DIR "$ENV{CORE_MQTT_AGENT_PATH}" CACHE STRING "Course Common Lib")
+set(CORE_MQTT_AGENT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/coreMQTT-Agent" CACHE STRING "Course Common Lib")
 include("FreeRTOS-coreMQTT-Agent.cmake")
+
+set(COREHTTP_PATH "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/coreHTTP" CACHE STRING "Course Common Lib")
+set(COREHTTP_PORT "${CMAKE_CURRENT_LIST_DIR}/port/CoreHTTP/" CACHE STRING "Course Common Lib")
+include(coreHTTP.cmake)
+
+set(WOLFSSL_DIR "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/wolfssl" CACHE STRING "Course Common Lib")
+include("wolfssl_import.cmake")
+
+SET(URILIB_PATH "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/uri-library" CACHE STRING "Common Lib")
+include(urilib.cmake)
+
+SET(JSON_MAKER_DIR "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/json-maker" CACHE STRING "Common Lib")
+include(json-maker.cmake)
 
 set(TINY_JSON_DIR "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/tiny-json" CACHE STRING "Course Common Lib")
 include("tiny-json.cmake")
 
+set(SPNG_DIR "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/libspng" CACHE STRING "Common Lib")
+set(MINIZ_DIR "${CMAKE_CURRENT_LIST_DIR}/../../c-libs/miniz" CACHE STRING "Common Lib")
+include(spng_import.cmake)
+
 include(pimoroni_pico_import.cmake)
 
-include_directories(
-    "${CMAKE_CURRENT_LIST_DIR}/port/twinThing"
-)
 
 add_subdirectory(src)
 

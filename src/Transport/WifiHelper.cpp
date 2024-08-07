@@ -189,6 +189,7 @@ void WifiHelper::sntpStartSync(){
 	sntp_init();
 }
 
+
 /***
  * Call back function used to set the RTC with the SNTP response
  * @param sec
@@ -209,7 +210,7 @@ void WifiHelper::setTimeSec(uint32_t sec){
 	date.month = timeinfo->tm_mon + 1;
 	date.year = timeinfo->tm_year + 1900;
 
-	rtc_set_datetime (&date);
+	rtc_set_datetime(&date);
 }
 
 

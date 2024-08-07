@@ -32,13 +32,7 @@ TCPTransport::~TCPTransport() {
 }
 
 
-/***
- * Required by CoreMQTT returns time in ms
- * @return
- */
-uint32_t TCPTransport::getCurrentTime(){
-	return to_ms_since_boot(get_absolute_time ());
-}
+
 
 /***
  * Send bytes through socket
@@ -47,7 +41,7 @@ uint32_t TCPTransport::getCurrentTime(){
  * @param bytesToSend - number of bytes to send
  * @return number of bytes sent
  */
-int32_t TCPTransport::transSend(NetworkContext_t * pNetworkContext, const void * pBuffer, size_t bytesToSend){
+int32_t TCPTransport::transSend(const void * pBuffer, size_t bytesToSend){
 	uint32_t dataOut;
 
 	//debugPrintBuffer("TCPTransport::transSend", pBuffer, bytesToSend);
@@ -67,7 +61,7 @@ int32_t TCPTransport::transSend(NetworkContext_t * pNetworkContext, const void *
  * @param bytesToRecv
  * @return
  */
-int32_t TCPTransport::transRead(NetworkContext_t * pNetworkContext, void * pBuffer, size_t bytesToRecv){
+int32_t TCPTransport::transRead(void * pBuffer, size_t bytesToRecv){
 	int32_t dataIn=0;
 
 	dataIn = read(xSock, (uint8_t *)pBuffer, bytesToRecv);
@@ -85,31 +79,7 @@ int32_t TCPTransport::transRead(NetworkContext_t * pNetworkContext, void * pBuff
 }
 
 
-/***
- * Static function to send data through socket from buffer
- * @param pNetworkContext - Used to locate the TCPTransport object to use
- * @param pBuffer - Buffer of data to send
- * @param bytesToSend - number of bytes to send
- * @return number of bytes sent
- */
-int32_t TCPTransport::staticSend(NetworkContext_t * pNetworkContext, const void * pBuffer, size_t bytesToSend){
-	TCPTransport *t = (TCPTransport *)pNetworkContext->tcpTransport;
-	return t->transSend(pNetworkContext, pBuffer, bytesToSend);
-}
 
-
-/***
- * Read data from network socket. Non blocking returns 0 if no data
- * @param pNetworkContext - Used to locate the TCPTransport object to use
- * @param pBuffer - Buffer to read into
- * @param bytesToRecv - Maximum number of bytes to read
- * @return number of bytes read. May be 0 as non blocking
- * Negative number indicates error
- */
-int32_t TCPTransport::staticRead(NetworkContext_t * pNetworkContext, void * pBuffer, size_t bytesToRecv){
-	TCPTransport *t = (TCPTransport *)pNetworkContext->tcpTransport;
-	return t->transRead(pNetworkContext, pBuffer, bytesToRecv);
-}
 
 /***
  * Connect to remote TCP Socket

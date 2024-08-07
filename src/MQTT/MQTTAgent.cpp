@@ -9,6 +9,7 @@
 
 #include "MQTTAgent.h"
 #include <stdlib.h>
+#include "Transport.h"
 #include "WifiHelper.h"
 
 /* MQTT Agent ports. */
@@ -82,8 +83,8 @@ MQTTStatus_t MQTTAgent::init(){
 	xNetworkContext.mqttTask = NULL;
 	xNetworkContext.tcpTransport = &xTcpTrans;
 	xTransport.pNetworkContext = &xNetworkContext;
-	xTransport.send = TCPTransport::staticSend;
-	xTransport.recv = TCPTransport::staticRead;
+	xTransport.send = Transport::staticTransSend;
+	xTransport.recv = Transport::staticTransRead;
 
 
 	/* Initialize MQTT library. */
@@ -91,7 +92,7 @@ MQTTStatus_t MQTTAgent::init(){
 							  &messageInterface,
 							  &xFixedBuffer,
 							  &xTransport,
-							  TCPTransport::getCurrentTime,
+							  Transport::getTime,
 							  MQTTAgent::incomingPublishCallback,
 							  /* Context to pass into the callback. Passing the pointer to subscription array. */
 							  this );

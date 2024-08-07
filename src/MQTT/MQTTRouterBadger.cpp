@@ -44,6 +44,7 @@ void MQTTRouterBadger::subscribe(MQTTInterface *interface){
 		interface->subToTopic(pBadgerTopic, 1);
 		//Refresh screen once initialization is done
 		pAgent->sendAction(RefreshScreen);
+		pAgent->sendAction(GetWeather);
 	}
 }
 

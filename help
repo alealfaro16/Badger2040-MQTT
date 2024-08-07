@@ -1,0 +1,36 @@
+" ============================================================================
+" Netrw Directory Listing                                        (netrw v171)
+"   /Users/alealfaro/pico/Badger2040-MQTT
+"   Sorted by      name
+"   Sort sequence: [\/]$,\<core\%(\.\d\+\)\=\>,\.h$,\.c$,\.cpp$,\~\=\*$,*,\.o$,\.obj$,\.info$,\.swp$,\.bak$,\~$
+"   Quick Help: <F1>:help  -:go up dir  D:delete  R:rename  s:sort-by  x:special
+" ==============================================================================
+../
+./
+.cache/
+.git/
+.vscode/
+build/
+config/
+port/
+src/
+CMakeLists.txt*
+FreeRTOS-coreMQTT-Agent.cmake*
+FreeRTOS-coreMQTT.cmake*
+FreeRTOS_Kernel_import.cmake*
+build.sh*
+debug.sh*
+install.sh*
+lwip_import.cmake*
+pico_sdk_import.cmake*
+tiny-json.cmake*
+.DS_Store
+.clangd
+.gitignore
+README.md
+commands.txt
+coreHTTP.cmake
+json-maker.cmake
+pimoroni_pico_import.cmake
+urilib.cmake
+wolfssl_import.cmake

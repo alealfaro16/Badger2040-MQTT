@@ -116,10 +116,10 @@ public:
 	 */
 	static void setTimeSec(uint32_t sec);
 
+	static int32_t sntpTimezoneMinutesOffset;
 private:
 	
 	static uint8_t sntpServerCount;
-	static int32_t sntpTimezoneMinutesOffset;
 
 };
 
